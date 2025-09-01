@@ -12,10 +12,5 @@
       "jsEngine": "jsc",
       "bundleIdentifier": "com.accountability.pactify"
     },
-    "extra": {
-      "eas": {
-        "projectId": "generated-by-eas"
-      }
-    }
   }
 }
