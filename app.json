@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Pactify",
+    "slug": "pactify",
+    "version": "1.0.0",
+    "platforms": ["ios", "android"],
+    "android": {
+      "package": "com.accountability.pactify",
+      "jsEngine": "jsc"
+    },
+    "ios": {
+      "jsEngine": "jsc",
+      "bundleIdentifier": "com.accountability.pactify"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "generated-by-eas"
+      }
+    }
+  }
+}
