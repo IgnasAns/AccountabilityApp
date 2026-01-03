@@ -1,16 +1,37 @@
 {
   "expo": {
-    "name": "Pactify",
-    "slug": "pactify",
+    "name": "Social Ledger",
+    "slug": "social-ledger",
     "version": "1.0.0",
-    "platforms": ["ios", "android"],
-    "android": {
-      "package": "com.accountability.pactify",
-      "jsEngine": "jsc"
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0a"
     },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "jsEngine": "jsc",
-      "bundleIdentifier": "com.accountability.pactify"
+      "supportsTablet": true,
+      "bundleIdentifier": "com.socialledger.app"
     },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a0a0a"
+      },
+      "package": "com.socialledger.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "your-project-id"
+      }
+    }
   }
 }
