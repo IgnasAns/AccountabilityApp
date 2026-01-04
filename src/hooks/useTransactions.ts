@@ -14,6 +14,15 @@ export function useTransactions(groupId?: string) {
     const fetchTransactions = useCallback(async () => {
         if (!user) return;
 
+        // Guest mode support
+        if (user.id === 'guest_user_id') {
+            setLoading(false);
+            setTransactions([]);
+            setPendingDebts([]);
+            setPendingCredits([]);
+            return;
+        }
+
         try {
             setLoading(true);
             setError(null);

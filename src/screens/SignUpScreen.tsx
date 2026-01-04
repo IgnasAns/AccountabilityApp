@@ -6,13 +6,13 @@ import {
     TouchableOpacity,
     KeyboardAvoidingView,
     Platform,
-    Alert,
     ActivityIndicator,
     ScrollView,
     StyleSheet,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../hooks/useAuth';
+import { StyledAlert } from '../components/StyledAlert';
 import { colors } from '../theme/colors';
 
 interface Props {
@@ -27,36 +27,53 @@ export default function SignUpScreen({ navigation }: Props) {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
 
+    const [success, setSuccess] = useState(false);
+
     const handleSignUp = async () => {
         if (!name || !email || !password || !confirmPassword) {
-            Alert.alert('Error', 'Please fill in all fields');
+            StyledAlert.alert('Error', 'Please fill in all fields');
             return;
         }
 
         if (password !== confirmPassword) {
-            Alert.alert('Error', 'Passwords do not match');
+            StyledAlert.alert('Error', 'Passwords do not match');
             return;
         }
 
         if (password.length < 6) {
-            Alert.alert('Error', 'Password must be at least 6 characters');
+            StyledAlert.alert('Error', 'Password must be at least 6 characters');
             return;
         }
 
         try {
             setLoading(true);
             await signUp(email, password, name);
-            Alert.alert(
-                'Success!',
-                'Please check your email to verify your account.',
-                [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
-            );
+            setSuccess(true);
         } catch (error: any) {
-            Alert.alert('Sign Up Error', error.message);
+            console.error('Sign up error:', error);
+            StyledAlert.alert('Sign Up Error', error.message || 'An unknown error occurred');
         } finally {
             setLoading(false);
         }
     };
+
+    if (success) {
+        return (
+            <View style={[styles.container, styles.successContainer]}>
+                <Text style={styles.successEmoji}>✅</Text>
+                <Text style={styles.successTitle}>Account Created!</Text>
+                <Text style={styles.successSubtitle}>
+                    Please check your email at {email} to verify your account.
+                </Text>
+                <TouchableOpacity
+                    onPress={() => navigation.navigate('Login')}
+                    style={styles.signUpButton}
+                >
+                    <Text style={styles.signUpButtonText}>Go to Login</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     return (
         <KeyboardAvoidingView
@@ -241,5 +258,27 @@ const styles = StyleSheet.create({
     loginTextHighlight: {
         color: colors.primary,
         fontWeight: '600',
+    },
+    successContainer: {
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 32,
+    },
+    successEmoji: {
+        fontSize: 64,
+        marginBottom: 24,
+    },
+    successTitle: {
+        color: colors.text,
+        fontSize: 28,
+        fontWeight: 'bold',
+        marginBottom: 16,
+    },
+    successSubtitle: {
+        color: colors.textMuted,
+        textAlign: 'center',
+        fontSize: 16,
+        marginBottom: 32,
+        lineHeight: 24,
     },
 });

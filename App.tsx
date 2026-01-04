@@ -1,12 +1,15 @@
-import React from 'react';
-import { View, ActivityIndicator, Text } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, ActivityIndicator, Text, Platform, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as NavigationBar from 'expo-navigation-bar';
 
 import { AuthProvider, useAuth } from './src/hooks/useAuth';
+import { AlertProvider } from './src/components/StyledAlert';
 import { colors } from './src/theme/colors';
 
 // Screens
@@ -16,22 +19,43 @@ import HomeScreen from './src/screens/HomeScreen';
 import CreateGroupScreen from './src/screens/CreateGroupScreen';
 import JoinGroupScreen from './src/screens/JoinGroupScreen';
 import GroupDetailScreen from './src/screens/GroupDetailScreen';
+import GroupChatScreen from './src/screens/GroupChatScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function TabNavigator() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
           backgroundColor: colors.surface,
+          borderTopWidth: 1,
           borderTopColor: colors.border,
+          paddingTop: 8,
+          paddingBottom: Platform.OS === 'android' ? Math.max(insets.bottom, 8) : insets.bottom,
+          height: Platform.OS === 'android' ? 64 + Math.max(insets.bottom, 8) : 60 + insets.bottom,
+          // Premium shadow effect
+          shadowColor: colors.primary,
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 12,
+          elevation: 20,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
+        tabBarLabelStyle: {
+          fontSize: 12,
+          fontWeight: '600',
+          marginTop: 4,
+        },
+        tabBarIconStyle: {
+          marginTop: 4,
+        },
       }}
     >
       <Tab.Screen
@@ -98,6 +122,11 @@ function AppNavigator() {
         component={GroupDetailScreen as any}
         options={{ title: 'Group Details', headerBackTitle: 'Back' }}
       />
+      <Stack.Screen
+        name="GroupChat"
+        component={GroupChatScreen as any}
+        options={{ title: 'Group Chat', headerBackTitle: 'Back' }}
+      />
     </Stack.Navigator>
   );
 }
@@ -121,11 +150,23 @@ function NavigationWrapper() {
 }
 
 export default function App() {
+  // Set Android navigation bar color to match app theme
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      // Set the navigation bar background color to match the app
+      NavigationBar.setBackgroundColorAsync(colors.background);
+      // Set the button style to light (for dark backgrounds)
+      NavigationBar.setButtonStyleAsync('light');
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <SafeAreaProvider>
-        <StatusBar style="light" />
-        <NavigationWrapper />
+        <AlertProvider>
+          <StatusBar style="light" />
+          <NavigationWrapper />
+        </AlertProvider>
       </SafeAreaProvider>
     </AuthProvider>
   );

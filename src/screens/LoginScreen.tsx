@@ -6,12 +6,12 @@ import {
     TouchableOpacity,
     KeyboardAvoidingView,
     Platform,
-    Alert,
     ActivityIndicator,
     StyleSheet,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../hooks/useAuth';
+import { StyledAlert } from '../components/StyledAlert';
 import { colors } from '../theme/colors';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,25 +27,27 @@ export default function LoginScreen({ navigation }: Props) {
     const [loading, setLoading] = useState(false);
     const insets = useSafeAreaInsets();
 
+    const [error, setError] = useState('');
+
     const handleLogin = async () => {
         if (!email || !password) {
-            Alert.alert('Error', 'Please fill in all fields');
+            setError('Please fill in all fields');
             return;
         }
+        setError('');
 
         try {
             setLoading(true);
             await signIn(email, password);
         } catch (error: any) {
             console.error('Login error full object:', error);
-            // Handle specific Supabase error for Invalid API Key
-            if (error.message && error.message.includes('Invalid API key')) {
-                Alert.alert(
-                    'Configuration Error',
-                    'The Supabase credentials configured in the app are invalid. Please check your .env file or project settings.'
-                );
+
+            if (error.message && error.message.includes('Email not confirmed')) {
+                setError('📧 Email not confirmed.\n\nPlease check your inbox/spam for the confirmation link.\n\nOR: Ask the developer to run the "critical_fix.sql" script to auto-confirm your account.');
+            } else if (error.message && error.message.includes('Invalid login credentials')) {
+                setError('Invalid email or password.');
             } else {
-                Alert.alert('Login Error', error.message || 'An unexpected error occurred');
+                setError(error.message || 'An unexpected error occurred');
             }
         } finally {
             setLoading(false);
@@ -75,7 +77,7 @@ export default function LoginScreen({ navigation }: Props) {
                         <Text style={styles.label}>Email</Text>
                         <TextInput
                             value={email}
-                            onChangeText={setEmail}
+                            onChangeText={(text) => { setEmail(text); setError(''); }}
                             placeholder="your@email.com"
                             placeholderTextColor={colors.textMuted}
                             keyboardType="email-address"
@@ -90,7 +92,7 @@ export default function LoginScreen({ navigation }: Props) {
                         <Text style={styles.label}>Password</Text>
                         <TextInput
                             value={password}
-                            onChangeText={setPassword}
+                            onChangeText={(text) => { setPassword(text); setError(''); }}
                             placeholder="••••••••"
                             placeholderTextColor={colors.textMuted}
                             secureTextEntry
@@ -99,6 +101,13 @@ export default function LoginScreen({ navigation }: Props) {
                         />
                     </View>
                 </View>
+
+                {/* Error Message */}
+                {error ? (
+                    <View style={styles.errorContainer}>
+                        <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                ) : null}
 
                 {/* Login Button */}
                 <TouchableOpacity
@@ -131,8 +140,9 @@ export default function LoginScreen({ navigation }: Props) {
                         try {
                             setLoading(true);
                             await signInAsGuest();
-                        } catch (e) {
-                            Alert.alert('Error', 'Failed to sign in as guest');
+                        } catch (e: any) {
+                            console.error('Guest login failed', e);
+                            StyledAlert.alert('Error', 'Failed to sign in as guest: ' + (e.message || 'Unknown error'));
                         } finally {
                             setLoading(false);
                         }
@@ -232,5 +242,18 @@ const styles = StyleSheet.create({
     guestButtonText: {
         color: colors.textMuted,
         textDecorationLine: 'underline',
+    },
+    errorContainer: {
+        marginTop: 16,
+        padding: 12,
+        backgroundColor: '#fee2e2',
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#ef4444',
+    },
+    errorText: {
+        color: '#b91c1c',
+        fontSize: 14,
+        textAlign: 'center',
     },
 });

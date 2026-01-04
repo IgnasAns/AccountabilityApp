@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../hooks/useAuth';
 import { useGroups } from '../hooks/useGroups';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -12,9 +13,27 @@ interface Props {
 
 export default function HomeScreen({ navigation }: Props) {
     const { profile, signOut } = useAuth();
-    const { groups, groupBalances, netBalance, loading, refetch } = useGroups();
+    const { groups, groupBalances, netBalance, loading, refetch, error } = useGroups();
     const [refreshing, setRefreshing] = React.useState(false);
+    const [longLoading, setLongLoading] = React.useState(false);
     const insets = useSafeAreaInsets();
+
+    // Refetch when screen comes into focus (e.g., after creating a group)
+    useFocusEffect(
+        useCallback(() => {
+            refetch();
+        }, [refetch])
+    );
+
+    // Track if loading takes too long
+    React.useEffect(() => {
+        if (loading) {
+            const timer = setTimeout(() => setLongLoading(true), 3000);
+            return () => clearTimeout(timer);
+        } else {
+            setLongLoading(false);
+        }
+    }, [loading]);
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -39,16 +58,30 @@ export default function HomeScreen({ navigation }: Props) {
         return 'All settled';
     };
 
-    if (loading && !refreshing) {
+    // Only show full loading screen for first 3 seconds of initial load
+    if (loading && !refreshing && !longLoading) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={colors.primary} />
+                <Text style={{ color: colors.textMuted, marginTop: 16 }}>Loading...</Text>
             </View>
         );
     }
 
+    // We don't block render on error anymore, to allow user to sign out or see existing data
+    // if (error) { ... }
+
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
+            {/* Error Banner */}
+            {error && (
+                <View style={styles.errorBanner}>
+                    <Text style={styles.errorBannerText}>⚠️ {error}</Text>
+                    <TouchableOpacity onPress={onRefresh}>
+                        <Text style={styles.errorBannerRetry}>Retry</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
             {/* Header */}
             <View style={styles.header}>
                 <View>
@@ -395,5 +428,61 @@ const styles = StyleSheet.create({
         color: colors.textMuted,
         fontSize: 14,
         marginTop: 4,
+    },
+    centerContent: {
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 32,
+    },
+    errorEmoji: {
+        fontSize: 48,
+        marginBottom: 16,
+    },
+    errorTitle: {
+        color: colors.text,
+        fontSize: 20,
+        fontWeight: 'bold',
+        marginBottom: 8,
+    },
+    errorText: {
+        color: colors.error,
+        textAlign: 'center',
+        marginBottom: 24,
+    },
+    retryButton: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        borderRadius: 8,
+    },
+    retryButtonText: {
+        color: colors.text,
+        fontWeight: '600',
+    },
+    signOutLink: {
+        marginTop: 16,
+        padding: 8,
+    },
+    signOutLinkText: {
+        color: colors.textMuted,
+        textDecorationLine: 'underline',
+    },
+    errorBanner: {
+        backgroundColor: colors.error,
+        padding: 12,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    errorBannerText: {
+        color: '#fff',
+        flex: 1,
+        marginRight: 8,
+        fontSize: 12,
+    },
+    errorBannerRetry: {
+        color: '#fff',
+        fontWeight: 'bold',
+        textDecorationLine: 'underline',
     },
 });

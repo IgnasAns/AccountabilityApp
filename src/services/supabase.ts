@@ -1,25 +1,70 @@
-import 'react-native-url-polyfill/auto';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient } from '@supabase/supabase-js';
-
-// Replace these with your actual Supabase project credentials
-// Replace these with your actual Supabase project credentials
-// Fallback to hardcoded values if env vars fail to load (Debugging fallback)
-const HARDCODED_URL = 'https://bftyuzhigydeuabzkfvs.supabase.co'; // Inferred from logs
-const HARDCODED_KEY = 'sb_publishable__rEZKiEg8XNctM5xW'; // Inferred from logs
-
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || HARDCODED_URL;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || HARDCODED_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-    console.warn('CRITICAL: Supabase credentials are still missing.');
+import { Platform } from 'react-native';
+// Only load the polyfill on native platforms. On Web, the browser's native implementation is better.
+if (Platform.OS !== 'web') {
+    require('react-native-url-polyfill/auto');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClient } from '@supabase/supabase-js';
+import { Database } from '../types/database';
+
+// Supabase Project URL (public)
+const supabaseUrl = 'https://bftyuzhigydeuabzkfvs.supabase.co';
+
+// ------------------------------------------------------------------
+// SUPABASE ANON KEY - SECURITY NOTE:
+// This is the PUBLIC "anon" key, NOT a secret key.
+// It is designed to be exposed in client-side apps.
+// Security is enforced via Row Level Security (RLS) policies.
+// See: https://supabase.com/docs/guides/database/postgres/row-level-security
+// ------------------------------------------------------------------
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdHl1emhpZ3lkZXVhYnprZnZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MzU3OTQsImV4cCI6MjA4MzAxMTc5NH0.-y6wjwq2QeXfpLzBj_ejEUkFVV_BBdjBRvhLba6iOT4';
+
+const supabaseAnonKey = SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseAnonKey) {
+    console.warn('Supabase Anon Key is missing.');
+}
+
+// Default to a placeholder if key is missing to prevent crash
+const safeKey = supabaseAnonKey || '';
+
+// Custom storage wrapper for web that provides async-compatible interface
+const webStorage = {
+    getItem: (key: string): string | null => {
+        try {
+            return localStorage.getItem(key);
+        } catch {
+            return null;
+        }
+    },
+    setItem: (key: string, value: string): void => {
+        try {
+            localStorage.setItem(key, value);
+        } catch {
+            // Ignore storage errors
+        }
+    },
+    removeItem: (key: string): void => {
+        try {
+            localStorage.removeItem(key);
+        } catch {
+            // Ignore storage errors
+        }
+    },
+};
+
+// Use appropriate storage based on platform
+const storage = Platform.OS === 'web' ? webStorage : AsyncStorage;
+
+// Enable persistence only on native platforms (web has issues)
+const isNative = Platform.OS !== 'web';
+
+export const supabase = createClient(supabaseUrl, safeKey, {
     auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
+        storage: storage as any,
+        autoRefreshToken: isNative,  // Only on native
+        persistSession: isNative,    // Only on native - web has hanging issues
         detectSessionInUrl: false,
     },
 });
@@ -38,10 +83,15 @@ interface JoinGroupResult {
 }
 
 // Helper function to call the log_failure RPC
-export async function logFailure(groupId: string, description?: string): Promise<LogFailureResult | null> {
+export async function logFailure(
+    groupId: string,
+    description?: string,
+    proofPhotoUrl?: string
+): Promise<LogFailureResult | null> {
     const { data, error } = await supabase.rpc('log_failure', {
         p_group_id: groupId,
         p_description: description ?? null,
+        p_proof_photo_url: proofPhotoUrl ?? null,
     });
 
     if (error) throw error;

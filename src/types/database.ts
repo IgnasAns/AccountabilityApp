@@ -94,6 +94,7 @@ export interface Database {
                     amount: number;
                     status: 'pending' | 'paid';
                     description: string | null;
+                    proof_photo_url: string | null;
                     created_at: string;
                     settled_at: string | null;
                 };
@@ -105,6 +106,7 @@ export interface Database {
                     amount: number;
                     status?: 'pending' | 'paid';
                     description?: string | null;
+                    proof_photo_url?: string | null;
                     created_at?: string;
                     settled_at?: string | null;
                 };
@@ -119,7 +121,7 @@ export interface Database {
         };
         Functions: {
             log_failure: {
-                Args: { p_group_id: string; p_description: string | null };
+                Args: { p_group_id: string; p_description: string | null; p_proof_photo_url?: string | null };
                 Returns: {
                     success: boolean;
                     transactions_created: number;
@@ -168,4 +170,60 @@ export interface TransactionWithProfiles extends Transaction {
 export interface GroupBalance {
     group: Group;
     balance: number;
+}
+
+// Goal types for scheduled goals feature
+export interface Goal {
+    id: string;
+    group_id: string;
+    name: string;
+    description: string | null;
+    emoji: string;
+    goal_type: 'frequency' | 'daily' | 'weekly';
+    frequency_days: number;
+    penalty_amount: number;
+    is_active: boolean;
+    created_by: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface GoalCompletion {
+    id: string;
+    goal_id: string;
+    user_id: string;
+    completed_at: string;
+    proof_photo_url: string | null;
+    notes: string | null;
+    created_at: string;
+}
+
+export interface GoalWithCompletions extends Goal {
+    completions: GoalCompletion[];
+    creator?: Profile;
+}
+
+export interface GoalStatus {
+    goal_id: string;
+    user_id: string;
+    last_completion: string | null;
+    next_deadline: string;
+    is_overdue: boolean;
+    days_remaining: number;
+    total_completions: number;
+}
+
+// Message types for group chat
+export interface Message {
+    id: string;
+    group_id: string;
+    user_id: string;
+    content: string;
+    message_type: 'text' | 'image' | 'system';
+    image_url: string | null;
+    created_at: string;
+}
+
+export interface MessageWithProfile extends Message {
+    user: Profile;
 }

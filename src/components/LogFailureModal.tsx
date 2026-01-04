@@ -6,13 +6,16 @@ import {
     TouchableOpacity,
     TextInput,
     ActivityIndicator,
-    Alert,
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
+    ScrollView,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { logFailure } from '../services/supabase';
+import { uploadProofPhoto } from '../services/photoService';
+import { StyledAlert } from './StyledAlert';
+import PhotoProofPicker from './PhotoProofPicker';
 import { colors } from '../theme/colors';
 
 interface Props {
@@ -36,32 +39,77 @@ export default function LogFailureModal({
 }: Props) {
     const [description, setDescription] = useState('');
     const [loading, setLoading] = useState(false);
+    const [photoUri, setPhotoUri] = useState<string | null>(null);
+    const [uploadProgress, setUploadProgress] = useState('');
 
     const totalDebt = penaltyAmount * memberCount;
+
+    // Safe haptics helper (no-op on web)
+    const safeHaptics = (type: 'success' | 'warning' | 'error') => {
+        if (Platform.OS === 'web') return;
+        try {
+            if (type === 'success') {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } else if (type === 'warning') {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            } else {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            }
+        } catch (e) {
+            // Ignore haptics errors
+        }
+    };
 
     const handleConfirm = async () => {
         try {
             setLoading(true);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            safeHaptics('warning');
 
-            const result = await logFailure(groupId, description || undefined);
+            let proofPhotoUrl: string | undefined;
 
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-            if (result) {
-                Alert.alert(
-                    'Failure Logged 😔',
-                    `${result.transactions_created} debt${result.transactions_created !== 1 ? 's' : ''} created.\nTotal: €${result.total_debt.toFixed(2)}`,
-                    [{ text: 'OK', onPress: onSuccess }]
-                );
-            } else {
-                Alert.alert('Failure Logged', 'Your failure has been recorded.', [{ text: 'OK', onPress: onSuccess }]);
+            // Upload photo if one was selected
+            if (photoUri) {
+                setUploadProgress('Uploading photo...');
+                try {
+                    proofPhotoUrl = await uploadProofPhoto(photoUri, groupId);
+                    setUploadProgress('');
+                } catch (uploadError: any) {
+                    console.error('Photo upload failed:', uploadError);
+                    // Continue without photo if upload fails
+                    StyledAlert.alert(
+                        'Photo Upload Failed',
+                        'The failure will be logged without the photo. ' + uploadError.message
+                    );
+                }
             }
 
+            setUploadProgress('Logging failure...');
+            const result = await logFailure(groupId, description || undefined, proofPhotoUrl);
+
+            safeHaptics('success');
             setDescription('');
+            setPhotoUri(null);
+            setUploadProgress('');
+
+            // Call onSuccess immediately to close modal and refresh data
+            onSuccess();
+
+            // Show confirmation after modal is closed
+            setTimeout(() => {
+                if (result) {
+                    const photoText = proofPhotoUrl ? '\n📸 Photo proof attached' : '';
+                    StyledAlert.alert(
+                        'Failure Logged 😔',
+                        `${result.transactions_created} debt${result.transactions_created !== 1 ? 's' : ''} created.\nTotal: €${result.total_debt.toFixed(2)}${photoText}`
+                    );
+                } else {
+                    StyledAlert.alert('Failure Logged', 'Your failure has been recorded.');
+                }
+            }, 100);
         } catch (error: any) {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            Alert.alert('Error', error.message);
+            safeHaptics('error');
+            StyledAlert.alert('Error', error.message);
+            setUploadProgress('');
         } finally {
             setLoading(false);
         }
@@ -70,6 +118,8 @@ export default function LogFailureModal({
     const handleClose = () => {
         if (!loading) {
             setDescription('');
+            setPhotoUri(null);
+            setUploadProgress('');
             onClose();
         }
     };
@@ -100,7 +150,12 @@ export default function LogFailureModal({
                             <View style={styles.handleBar} />
                         </View>
 
-                        <View style={styles.contentContainer}>
+                        <ScrollView
+                            style={styles.scrollView}
+                            contentContainerStyle={styles.contentContainer}
+                            showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                        >
                             {/* Header */}
                             <View style={styles.header}>
                                 <Text style={styles.headerEmoji}>😔</Text>
@@ -149,6 +204,13 @@ export default function LogFailureModal({
                                 />
                             </View>
 
+                            {/* Photo Proof Picker */}
+                            <PhotoProofPicker
+                                photoUri={photoUri}
+                                onPhotoSelected={setPhotoUri}
+                                disabled={loading}
+                            />
+
                             {/* Action Buttons */}
                             <View style={styles.buttonRow}>
                                 <TouchableOpacity
@@ -167,9 +229,16 @@ export default function LogFailureModal({
                                     ]}
                                 >
                                     {loading ? (
-                                        <ActivityIndicator color="#fff" />
+                                        <View style={styles.loadingContainer}>
+                                            <ActivityIndicator color="#fff" size="small" />
+                                            {uploadProgress ? (
+                                                <Text style={styles.uploadProgressText}>{uploadProgress}</Text>
+                                            ) : null}
+                                        </View>
                                     ) : (
-                                        <Text style={styles.confirmButtonText}>Confirm Failure</Text>
+                                        <Text style={styles.confirmButtonText}>
+                                            {photoUri ? '📸 Confirm with Photo' : 'Confirm Failure'}
+                                        </Text>
                                     )}
                                 </TouchableOpacity>
                             </View>
@@ -179,7 +248,7 @@ export default function LogFailureModal({
                                     ⚠️ No other members in the group. Invite friends first!
                                 </Text>
                             )}
-                        </View>
+                        </ScrollView>
                     </TouchableOpacity>
                 </TouchableOpacity>
             </KeyboardAvoidingView>
@@ -200,6 +269,10 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
+        maxHeight: '90%',
+    },
+    scrollView: {
+        flexGrow: 0,
     },
     handleBarContainer: {
         alignItems: 'center',
@@ -328,6 +401,16 @@ const styles = StyleSheet.create({
     confirmButtonText: {
         color: '#ffffff',
         fontWeight: 'bold',
+    },
+    loadingContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    uploadProgressText: {
+        color: '#ffffff',
+        fontSize: 12,
+        marginLeft: 8,
     },
     warningText: {
         color: colors.warning,

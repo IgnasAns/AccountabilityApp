@@ -7,16 +7,22 @@ import {
     RefreshControl,
     ActivityIndicator,
     Share,
-    Alert,
+    Platform,
     StyleSheet,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import { useAuth } from '../hooks/useAuth';
-import { useGroupDetail } from '../hooks/useGroups';
+import { useGroupDetail, useGroups } from '../hooks/useGroups';
 import { useTransactions } from '../hooks/useTransactions';
 import LogFailureModal from '../components/LogFailureModal';
+import ConfirmModal from '../components/ConfirmModal';
+import ProofPhotoViewer from '../components/ProofPhotoViewer';
+import GoalsSection from '../components/GoalsSection';
+import { StyledAlert } from '../components/StyledAlert';
 import { colors } from '../theme/colors';
 
 type RootStackParamList = {
@@ -28,7 +34,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 export default function GroupDetailScreen({ navigation, route }: Props) {
     const { groupId } = route.params;
     const { user } = useAuth();
+    const insets = useSafeAreaInsets();
     const { group, members, loading: groupLoading, refetch: refetchGroup } = useGroupDetail(groupId);
+    const { deleteGroup, leaveGroup } = useGroups();
     const {
         pendingDebts,
         pendingCredits,
@@ -40,6 +48,11 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     const [showFailureModal, setShowFailureModal] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [settlingId, setSettlingId] = useState<string | null>(null);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showLeaveModal, setShowLeaveModal] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const isCreator = group?.created_by === user?.id;
 
     useFocusEffect(
         useCallback(() => {
@@ -54,8 +67,26 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         setRefreshing(false);
     };
 
+    // Safe haptics helper (no-op on web)
+    const safeHaptics = (type: 'success' | 'warning' | 'error' | 'impact') => {
+        if (Platform.OS === 'web') return;
+        try {
+            if (type === 'success') {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } else if (type === 'warning') {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            } else if (type === 'error') {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            } else {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+            }
+        } catch (e) {
+            // Ignore haptics errors
+        }
+    };
+
     const handleLogFailure = () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        safeHaptics('impact');
         setShowFailureModal(true);
     };
 
@@ -68,10 +99,12 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         try {
             setSettlingId(transactionId);
             await settleDebt(transactionId);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            Alert.alert('Settled!', 'The debt has been marked as paid.');
+            safeHaptics('success');
+            // Immediately refresh data
+            await Promise.all([refetchGroup(), refetchTx()]);
+            StyledAlert.alert('Settled!', 'The debt has been marked as paid.');
         } catch (error: any) {
-            Alert.alert('Error', error.message);
+            StyledAlert.alert('Error', error.message);
         } finally {
             setSettlingId(null);
         }
@@ -85,6 +118,42 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
             });
         } catch (error) {
             console.error('Error sharing:', error);
+        }
+    };
+
+
+    const handleDeleteGroup = async () => {
+        try {
+            setIsDeleting(true);
+            await deleteGroup(groupId);
+            safeHaptics('success');
+            setShowDeleteModal(false);
+            // Reset navigation to go back to main screen
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'MainTabs' as any }],
+            });
+        } catch (error: any) {
+            console.error('Delete group error:', error);
+            StyledAlert.alert('Error', error.message || 'Failed to delete group');
+            setIsDeleting(false);
+        }
+    };
+
+    const handleLeaveGroup = async () => {
+        try {
+            setIsDeleting(true);
+            await leaveGroup(groupId);
+            safeHaptics('success');
+            setShowLeaveModal(false);
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'MainTabs' as any }],
+            });
+        } catch (error: any) {
+            console.error('Leave group error:', error);
+            StyledAlert.alert('Error', error.message || 'Failed to leave group');
+            setIsDeleting(false);
         }
     };
 
@@ -137,21 +206,51 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                         <Text style={styles.groupName}>
                             {group.name}
                         </Text>
-                        <TouchableOpacity
-                            onPress={handleShareInvite}
-                            style={styles.inviteButton}
-                        >
-                            <Text style={styles.inviteButtonText}>Invite</Text>
-                        </TouchableOpacity>
+                        <View style={styles.headerButtons}>
+                            <TouchableOpacity
+                                onPress={() => navigation.navigate('GroupChat' as any, {
+                                    groupId: groupId,
+                                    groupName: group.name
+                                })}
+                                style={styles.chatButton}
+                            >
+                                <Text style={styles.chatButtonText}>💬</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                onPress={handleShareInvite}
+                                style={styles.inviteButton}
+                            >
+                                <Text style={styles.inviteButtonText}>📤 Share</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                     <Text style={styles.penaltyText}>
-                        Penalty: €{group.default_penalty_amount.toFixed(2)} per failure
+                        💰 Penalty: €{group.default_penalty_amount.toFixed(2)} per failure
                     </Text>
-                    <View style={styles.codeContainer}>
-                        <Text style={styles.codeLabel}>
-                            Invite code: <Text style={styles.codeValue}>{group.invite_code}</Text>
-                        </Text>
-                    </View>
+                    <TouchableOpacity
+                        style={styles.codeContainer}
+                        onPress={async () => {
+                            try {
+                                await Clipboard.setStringAsync(group.invite_code);
+                                safeHaptics('success');
+                                StyledAlert.alert('Copied!', `Invite code "${group.invite_code}" copied to clipboard`);
+                            } catch (e) {
+                                // Fallback - show code in alert
+                                StyledAlert.alert('Invite Code', group.invite_code);
+                            }
+                        }}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.codeLabel}>🔑 Invite Code</Text>
+                        <View style={styles.codeRow}>
+                            <Text style={styles.codeValue}>
+                                {group.invite_code.length > 12
+                                    ? group.invite_code.substring(0, 12) + '...'
+                                    : group.invite_code}
+                            </Text>
+                            <Text style={styles.copyHint}>tap to copy</Text>
+                        </View>
+                    </TouchableOpacity>
                 </View>
 
                 {/* Your Balance in Group */}
@@ -228,6 +327,9 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                                 key={tx.id}
                                 style={styles.debtCard}
                             >
+                                {tx.proof_photo_url && (
+                                    <ProofPhotoViewer photoUrl={tx.proof_photo_url} size="medium" />
+                                )}
                                 <View style={styles.debtInfo}>
                                     <Text style={styles.debtName}>
                                         {tx.to_user?.name || 'Unknown'}
@@ -235,6 +337,9 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                                     <Text style={styles.debtDescription}>
                                         {tx.description || 'Logged failure'}
                                     </Text>
+                                    {tx.proof_photo_url && (
+                                        <Text style={styles.proofIndicator}>📸 Has proof photo</Text>
+                                    )}
                                 </View>
                                 <Text style={styles.debtAmount}>
                                     €{tx.amount.toFixed(2)}
@@ -255,6 +360,9 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                                 key={tx.id}
                                 style={styles.creditCard}
                             >
+                                {tx.proof_photo_url && (
+                                    <ProofPhotoViewer photoUrl={tx.proof_photo_url} size="medium" />
+                                )}
                                 <View style={styles.creditInfo}>
                                     <Text style={styles.creditName}>
                                         {tx.from_user?.name || 'Unknown'}
@@ -262,6 +370,9 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                                     <Text style={styles.creditDescription}>
                                         {tx.description || 'Logged failure'}
                                     </Text>
+                                    {tx.proof_photo_url && (
+                                        <Text style={styles.proofIndicator}>📸 Has proof photo</Text>
+                                    )}
                                 </View>
                                 <View style={styles.creditAction}>
                                     <Text style={styles.creditAmount}>
@@ -283,10 +394,70 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                         ))}
                     </View>
                 )}
+
+                {/* Scheduled Goals Section */}
+                <View style={styles.sectionContainer}>
+                    <GoalsSection
+                        groupId={groupId}
+                        groupName={group.name}
+                        defaultPenalty={group.default_penalty_amount}
+                    />
+                </View>
+
+                {/* Danger Zone */}
+                <View style={styles.dangerZone}>
+                    <Text style={styles.dangerTitle}>⚠️ Danger Zone</Text>
+
+                    {isCreator ? (
+                        <TouchableOpacity
+                            onPress={() => setShowDeleteModal(true)}
+                            style={styles.dangerButton}
+                        >
+                            <Text style={styles.dangerButtonText}>🗑️ Delete Group</Text>
+                            <Text style={styles.dangerButtonSubtext}>
+                                Permanently delete this group and all data
+                            </Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    const balance = currentMember?.current_balance || 0;
+                                    if (balance !== 0) {
+                                        if (balance < 0) {
+                                            StyledAlert.alert(
+                                                'Cannot Leave Yet',
+                                                `You owe €${Math.abs(balance).toFixed(2)} to other members. Please settle your debts before leaving the group.`
+                                            );
+                                        } else {
+                                            StyledAlert.alert(
+                                                'Cannot Leave Yet',
+                                                `Other members owe you €${balance.toFixed(2)}. Please have them settle their debts before you leave.`
+                                            );
+                                        }
+                                    } else {
+                                        setShowLeaveModal(true);
+                                    }
+                                }}
+                                style={[
+                                    styles.leaveButton,
+                                    currentMember?.current_balance !== 0 && styles.disabledLeaveButton
+                                ]}
+                            >
+                                <Text style={styles.leaveButtonText}>👋 Leave Group</Text>
+                                <Text style={styles.leaveButtonSubtext}>
+                                    {currentMember?.current_balance !== 0
+                                        ? 'Settle all balances first'
+                                        : 'Remove yourself from this group'}
+                                </Text>
+                            </TouchableOpacity>
+                        </>
+                    )}
+                </View>
             </ScrollView>
 
             {/* Big Red Failure Button */}
-            <View style={styles.fabContainer}>
+            <View style={[styles.fabContainer, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
                 <TouchableOpacity
                     onPress={handleLogFailure}
                     activeOpacity={0.8}
@@ -308,6 +479,28 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 groupName={group.name}
                 penaltyAmount={group.default_penalty_amount}
                 memberCount={otherMembers.length}
+            />
+
+            {/* Delete Confirmation Modal */}
+            <ConfirmModal
+                visible={showDeleteModal}
+                title="Delete Group?"
+                message={`Are you sure you want to delete "${group.name}"?\n\nThis will permanently delete all members, transactions, and data. This action cannot be undone.`}
+                confirmText={isDeleting ? "Deleting..." : "Delete Group"}
+                onConfirm={handleDeleteGroup}
+                onCancel={() => setShowDeleteModal(false)}
+                confirmStyle="danger"
+            />
+
+            {/* Leave Confirmation Modal */}
+            <ConfirmModal
+                visible={showLeaveModal}
+                title="Leave Group?"
+                message={`Are you sure you want to leave "${group.name}"?\n\nYour balance and membership will be removed.`}
+                confirmText={isDeleting ? "Leaving..." : "Leave Group"}
+                onConfirm={handleLeaveGroup}
+                onCancel={() => setShowLeaveModal(false)}
+                confirmStyle="danger"
             />
         </View>
     );
@@ -358,6 +551,22 @@ const styles = StyleSheet.create({
         flex: 1,
         marginRight: 12,
     },
+    headerButtons: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    chatButton: {
+        backgroundColor: colors.primary,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    chatButtonText: {
+        fontSize: 18,
+    },
     inviteButton: {
         backgroundColor: colors.surface,
         paddingHorizontal: 16,
@@ -371,23 +580,37 @@ const styles = StyleSheet.create({
     penaltyText: {
         color: colors.textMuted,
         fontSize: 14,
+        marginTop: 4,
     },
     codeContainer: {
         backgroundColor: colors.surfaceHighlight,
-        borderRadius: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        marginTop: 12,
-        alignSelf: 'flex-start',
+        borderRadius: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        marginTop: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     codeLabel: {
         color: colors.textMuted,
-        fontSize: 14,
+        fontSize: 12,
+        marginBottom: 4,
+    },
+    codeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
     },
     codeValue: {
         color: colors.primary,
         fontWeight: 'bold',
         fontFamily: 'monospace',
+        fontSize: 18,
+    },
+    copyHint: {
+        color: colors.textMuted,
+        fontSize: 12,
+        marginLeft: 12,
     },
     myBalanceCard: {
         marginHorizontal: 24,
@@ -484,6 +707,12 @@ const styles = StyleSheet.create({
         fontSize: 12,
         marginTop: 4,
     },
+    proofIndicator: {
+        color: colors.primary,
+        fontSize: 11,
+        marginTop: 4,
+        fontStyle: 'italic',
+    },
     debtAmount: {
         color: colors.error,
         fontWeight: 'bold',
@@ -550,10 +779,21 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         paddingVertical: 20,
         alignItems: 'center',
-        shadowColor: colors.error,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 12,
+        ...Platform.select({
+            ios: {
+                shadowColor: colors.error,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.4,
+                shadowRadius: 12,
+            },
+            android: {
+                elevation: 8,
+                shadowColor: colors.error,
+            },
+            web: {
+                boxShadow: `0px 4px 12px ${colors.error}66`, // 66 = 0.4 opacity
+            }
+        }),
         elevation: 8,
     },
     fabTitle: {
@@ -565,5 +805,57 @@ const styles = StyleSheet.create({
         color: 'rgba(255, 255, 255, 0.8)',
         fontSize: 14,
         marginTop: 4,
+    },
+    dangerZone: {
+        marginTop: 40,
+        marginBottom: 20,
+        marginHorizontal: 24,
+        padding: 20,
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(239, 68, 68, 0.3)',
+    },
+    dangerTitle: {
+        color: colors.error,
+        fontSize: 16,
+        fontWeight: '600',
+        marginBottom: 16,
+    },
+    dangerButton: {
+        backgroundColor: colors.error,
+        borderRadius: 12,
+        padding: 16,
+    },
+    dangerButtonText: {
+        color: '#ffffff',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    dangerButtonSubtext: {
+        color: 'rgba(255, 255, 255, 0.7)',
+        fontSize: 12,
+        marginTop: 4,
+    },
+    leaveButton: {
+        backgroundColor: colors.surface,
+        borderRadius: 12,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: colors.warning,
+    },
+    leaveButtonText: {
+        color: colors.warning,
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    leaveButtonSubtext: {
+        color: colors.textMuted,
+        fontSize: 12,
+        marginTop: 4,
+    },
+    disabledLeaveButton: {
+        opacity: 0.5,
+        borderColor: colors.textMuted,
     },
 });

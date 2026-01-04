@@ -6,14 +6,19 @@ import {
     TextInput,
     TouchableOpacity,
     ScrollView,
-    Alert,
     ActivityIndicator,
     StyleSheet,
+    Platform,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../hooks/useAuth';
 import { colors } from '../theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyledAlert } from '../components/StyledAlert';
+import ConfirmModal from '../components/ConfirmModal';
+
+// Declare window for web platform
+declare const window: { alert: (message: string) => void } | undefined;
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -25,34 +30,44 @@ export default function ProfileScreen({ navigation }: Props) {
     const [name, setName] = useState(profile?.name || '');
     const [paymentLink, setPaymentLink] = useState(profile?.payment_link || '');
     const [loading, setLoading] = useState(false);
+    const [showLogoutModal, setShowLogoutModal] = useState(false);
 
     const handleSave = async () => {
+        if (profile?.id === 'guest_user_id') {
+            StyledAlert.alert('Guest Mode', 'You cannot update the guest profile.');
+            return;
+        }
+
         try {
             setLoading(true);
             await updateProfile({ name, payment_link: paymentLink || null });
-            Alert.alert('Success', 'Profile updated successfully');
+            if (Platform.OS === 'web') {
+                window?.alert('Profile updated successfully!');
+            } else {
+                StyledAlert.alert('Success', 'Profile updated successfully');
+            }
         } catch (error: any) {
-            Alert.alert('Error', error.message);
+            if (Platform.OS === 'web') {
+                window?.alert(`Error: ${error.message}`);
+            } else {
+                StyledAlert.alert('Error', error.message);
+            }
         } finally {
             setLoading(false);
         }
     };
 
-    const handleSignOut = async () => {
-        Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Sign Out',
-                style: 'destructive',
-                onPress: async () => {
-                    try {
-                        await signOut();
-                    } catch (error: any) {
-                        Alert.alert('Error', error.message);
-                    }
-                },
-            },
-        ]);
+    const handleSignOut = () => {
+        setShowLogoutModal(true);
+    };
+
+    const doSignOut = async () => {
+        setShowLogoutModal(false);
+        try {
+            await signOut();
+        } catch (error: any) {
+            // Sign out handled gracefully
+        }
     };
 
     return (
@@ -126,6 +141,18 @@ export default function ProfileScreen({ navigation }: Props) {
                     <Text style={styles.signOutButtonText}>Sign Out</Text>
                 </TouchableOpacity>
             </View>
+
+            {/* Logout Confirmation Modal */}
+            <ConfirmModal
+                visible={showLogoutModal}
+                title="Sign Out"
+                message="Are you sure you want to sign out? You'll need to log in again to access your account."
+                confirmText="Sign Out"
+                cancelText="Cancel"
+                confirmStyle="danger"
+                onConfirm={doSignOut}
+                onCancel={() => setShowLogoutModal(false)}
+            />
         </ScrollView>
     );
 }

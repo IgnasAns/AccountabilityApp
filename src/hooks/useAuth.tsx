@@ -24,6 +24,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
     const [isGuest, setIsGuest] = useState(false);
 
+    // Safety timeout to prevent infinite loading screen
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (loading) {
+                console.warn('Auth loading timed out, forcing app load.');
+                setLoading(false);
+            }
+        }, 5000);
+        return () => clearTimeout(timer);
+    }, [loading]);
+
     useEffect(() => {
         // Get initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -74,14 +85,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     async function signUp(email: string, password: string, name: string) {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
             email,
             password,
             options: {
-                data: { name },
+                data: { name }, // This metadata is used by the Postgres trigger to create the profile
             },
         });
-        if (error) throw error;
+        if (error) {
+            throw error;
+        }
+
+        // If auto-confirm is enabled, data.session will be present. 
+        // If email confirmation is required, data.session will be null.
+        if (data.session) {
+            setSession(data.session);
+            setUser(data.user);
+            // Profile creation is handled by a Database Trigger on the 'auth.users' table
+            // referencing public.handle_new_user()
+        }
     }
 
     async function signIn(email: string, password: string) {
@@ -93,14 +115,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     async function signOut() {
+        // Handle guest mode immediately
         if (isGuest) {
             setUser(null);
             setProfile(null);
+            setSession(null);
             setIsGuest(false);
             return;
         }
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
+
+        // Force clear local state FIRST to ensure UI updates immediately
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+
+        // Then attempt to sign out from Supabase (don't await or set loading)
+        try {
+            await supabase.auth.signOut();
+        } catch (error) {
+            console.warn('Supabase sign out warning (local state already cleared):', error);
+            // Ignore - local state is already cleared so user is logged out from app's perspective
+        }
     }
 
     async function signInAsGuest() {
