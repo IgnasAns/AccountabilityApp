@@ -15,3 +15,12 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Build outputs
+*.apk
+*.aab
+*.ipa
+android/app/build/
+android/build/
+android/build_output*.txt
+android/local.properties
