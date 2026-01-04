@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     View,
     Text,
@@ -15,24 +15,52 @@ interface Props {
     goal: GoalWithCompletions;
     status: GoalStatus;
     onComplete: (goalId: string) => Promise<void>;
+    onNegativeLog?: (goalId: string, count: number) => Promise<void>;
     onViewCalendar: (goalId: string) => void;
 }
 
-export default function GoalCard({ goal, status, onComplete, onViewCalendar }: Props) {
+export default function GoalCard({ goal, status, onComplete, onNegativeLog, onViewCalendar }: Props) {
     const [completing, setCompleting] = useState(false);
 
-    const safeHaptics = () => {
+    const isNegative = goal.goal_mode === 'negative';
+
+    const safeHaptics = (style: 'light' | 'medium' | 'heavy' = 'medium') => {
         if (Platform.OS !== 'web') {
             try {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                const feedbackStyle = style === 'light'
+                    ? Haptics.ImpactFeedbackStyle.Light
+                    : style === 'heavy'
+                        ? Haptics.ImpactFeedbackStyle.Heavy
+                        : Haptics.ImpactFeedbackStyle.Medium;
+                Haptics.impactAsync(feedbackStyle);
             } catch (e) { }
         }
     };
 
+    // Calculate today's count for negative goals
+    const todayCount = useMemo(() => {
+        const today = new Date().toISOString().split('T')[0];
+        return goal.completions
+            .filter(c => c.completed_at.split('T')[0] === today)
+            .reduce((sum, c) => sum + (c.occurrence_count || 1), 0);
+    }, [goal.completions]);
+
+    // Calculate this week's count
+    const weekCount = useMemo(() => {
+        const now = new Date();
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - now.getDay() + 1); // Monday
+        weekStart.setHours(0, 0, 0, 0);
+
+        return goal.completions
+            .filter(c => new Date(c.completed_at) >= weekStart)
+            .reduce((sum, c) => sum + (c.occurrence_count || 1), 0);
+    }, [goal.completions]);
+
     const handleComplete = async () => {
         try {
             setCompleting(true);
-            safeHaptics();
+            safeHaptics('medium');
             await onComplete(goal.id);
         } catch (error) {
             console.error('Failed to complete goal:', error);
@@ -41,71 +69,128 @@ export default function GoalCard({ goal, status, onComplete, onViewCalendar }: P
         }
     };
 
-    // Determine status color and text
+    const handleNegativeLog = async () => {
+        if (!onNegativeLog) return;
+        try {
+            setCompleting(true);
+            safeHaptics('heavy'); // Heavier feedback for negative actions
+            await onNegativeLog(goal.id, 1);
+        } catch (error) {
+            console.error('Failed to log occurrence:', error);
+        } finally {
+            setCompleting(false);
+        }
+    };
+
+    // Determine status color and text - different for positive vs negative
     const getStatusInfo = () => {
-        if (status.is_overdue) {
-            return {
-                color: colors.error,
-                bgColor: 'rgba(239, 68, 68, 0.1)',
-                borderColor: 'rgba(239, 68, 68, 0.3)',
-                text: `⚠️ Overdue by ${Math.abs(status.days_remaining)} day${Math.abs(status.days_remaining) !== 1 ? 's' : ''}`,
-                urgent: true,
-            };
-        } else if (status.days_remaining <= 1) {
-            return {
-                color: colors.warning,
-                bgColor: 'rgba(234, 179, 8, 0.1)',
-                borderColor: 'rgba(234, 179, 8, 0.3)',
-                text: status.days_remaining <= 0 ? '⏰ Due today!' : '⏰ Due tomorrow',
-                urgent: true,
-            };
+        if (isNegative) {
+            // For negative goals, show today's slip-up count
+            if (todayCount === 0) {
+                return {
+                    color: colors.success,
+                    bgColor: 'rgba(34, 197, 94, 0.1)',
+                    borderColor: 'rgba(34, 197, 94, 0.3)',
+                    text: '✓ Clean today!',
+                    urgent: false,
+                };
+            } else {
+                return {
+                    color: colors.error,
+                    bgColor: 'rgba(239, 68, 68, 0.1)',
+                    borderColor: 'rgba(239, 68, 68, 0.3)',
+                    text: `${todayCount} today • €${(todayCount * goal.penalty_amount).toFixed(2)} penalty`,
+                    urgent: true,
+                };
+            }
         } else {
-            return {
-                color: colors.success,
-                bgColor: 'rgba(34, 197, 94, 0.1)',
-                borderColor: 'rgba(34, 197, 94, 0.3)',
-                text: `✓ ${status.days_remaining} days remaining`,
-                urgent: false,
-            };
+            // Positive goal status
+            if (status.is_overdue) {
+                return {
+                    color: colors.error,
+                    bgColor: 'rgba(239, 68, 68, 0.1)',
+                    borderColor: 'rgba(239, 68, 68, 0.3)',
+                    text: `⚠️ Overdue by ${Math.abs(status.days_remaining)} day${Math.abs(status.days_remaining) !== 1 ? 's' : ''}`,
+                    urgent: true,
+                };
+            } else if (status.days_remaining <= 1) {
+                return {
+                    color: colors.warning,
+                    bgColor: 'rgba(234, 179, 8, 0.1)',
+                    borderColor: 'rgba(234, 179, 8, 0.3)',
+                    text: status.days_remaining <= 0 ? '⏰ Due today!' : '⏰ Due tomorrow',
+                    urgent: true,
+                };
+            } else {
+                return {
+                    color: colors.success,
+                    bgColor: 'rgba(34, 197, 94, 0.1)',
+                    borderColor: 'rgba(34, 197, 94, 0.3)',
+                    text: `✓ ${status.days_remaining} days remaining`,
+                    urgent: false,
+                };
+            }
         }
     };
 
     const statusInfo = getStatusInfo();
 
-    // Format last completion date
-    const formatLastCompletion = () => {
-        if (!status.last_completion) {
-            return 'Never completed';
-        }
-        const date = new Date(status.last_completion);
-        const now = new Date();
-        const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    // Format last activity
+    const formatLastActivity = () => {
+        if (isNegative) {
+            if (goal.completions.length === 0) return 'No slip-ups yet!';
+            const lastCompletion = goal.completions[0];
+            const date = new Date(lastCompletion.completed_at);
+            const now = new Date();
+            const diffHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
 
-        if (diffDays === 0) return 'Completed today';
-        if (diffDays === 1) return 'Completed yesterday';
-        return `Completed ${diffDays} days ago`;
+            if (diffHours < 1) return 'Last: just now';
+            if (diffHours < 24) return `Last: ${diffHours}h ago`;
+            const diffDays = Math.floor(diffHours / 24);
+            return `Last: ${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+        } else {
+            if (!status.last_completion) return 'Never completed';
+            const date = new Date(status.last_completion);
+            const now = new Date();
+            const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+
+            if (diffDays === 0) return 'Completed today';
+            if (diffDays === 1) return 'Completed yesterday';
+            return `Completed ${diffDays} days ago`;
+        }
     };
 
     return (
         <View style={[styles.card, { borderColor: statusInfo.borderColor }]}>
             {/* Header */}
             <View style={styles.header}>
-                <View style={styles.emojiContainer}>
+                <View style={[styles.emojiContainer, isNegative && styles.emojiContainerNegative]}>
                     <Text style={styles.emoji}>{goal.emoji}</Text>
                 </View>
                 <View style={styles.titleContainer}>
-                    <Text style={styles.title}>{goal.name}</Text>
+                    <Text style={styles.title} numberOfLines={1}>{goal.name}</Text>
                     <Text style={styles.frequency}>
-                        Every {goal.frequency_days} day{goal.frequency_days !== 1 ? 's' : ''} •
-                        €{goal.penalty_amount.toFixed(2)} penalty
+                        {isNegative
+                            ? `€${goal.penalty_amount.toFixed(2)} per slip-up`
+                            : goal.target_per_week
+                                ? `${goal.target_per_week}x/week • €${goal.penalty_amount.toFixed(2)}`
+                                : `Every ${goal.frequency_days}d • €${goal.penalty_amount.toFixed(2)}`
+                        }
                     </Text>
                 </View>
-                <TouchableOpacity
-                    style={styles.calendarButton}
-                    onPress={() => onViewCalendar(goal.id)}
-                >
-                    <Text style={styles.calendarIcon}>📅</Text>
-                </TouchableOpacity>
+                <View style={styles.headerActions}>
+                    <View style={[styles.modeBadge, isNegative && styles.modeBadgeNegative]}>
+                        <Text style={styles.modeBadgeText}>
+                            {isNegative ? '🚫' : '✅'}
+                        </Text>
+                    </View>
+                    <TouchableOpacity
+                        style={styles.calendarButton}
+                        onPress={() => onViewCalendar(goal.id)}
+                    >
+                        <Text style={styles.calendarIcon}>📅</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* Status Badge */}
@@ -118,35 +203,59 @@ export default function GoalCard({ goal, status, onComplete, onViewCalendar }: P
             {/* Stats Row */}
             <View style={styles.statsRow}>
                 <View style={styles.stat}>
-                    <Text style={styles.statValue}>{status.total_completions}</Text>
-                    <Text style={styles.statLabel}>Total</Text>
+                    <Text style={styles.statValue}>
+                        {isNegative ? weekCount : status.total_completions}
+                    </Text>
+                    <Text style={styles.statLabel}>
+                        {isNegative ? 'This Week' : 'Total'}
+                    </Text>
                 </View>
                 <View style={styles.statDivider} />
                 <View style={styles.stat}>
-                    <Text style={styles.statValue}>{formatLastCompletion()}</Text>
-                    <Text style={styles.statLabel}>Last Activity</Text>
+                    <Text style={styles.statValue}>{formatLastActivity()}</Text>
+                    <Text style={styles.statLabel}>
+                        {isNegative ? 'Last Slip-up' : 'Last Activity'}
+                    </Text>
                 </View>
             </View>
 
-            {/* Complete Button */}
-            <TouchableOpacity
-                style={[
-                    styles.completeButton,
-                    statusInfo.urgent && styles.completeButtonUrgent,
-                ]}
-                onPress={handleComplete}
-                disabled={completing}
-                activeOpacity={0.7}
-            >
-                {completing ? (
-                    <ActivityIndicator color="#fff" />
-                ) : (
-                    <>
-                        <Text style={styles.completeButtonIcon}>✓</Text>
-                        <Text style={styles.completeButtonText}>Mark Complete</Text>
-                    </>
-                )}
-            </TouchableOpacity>
+            {/* Action Button */}
+            {isNegative ? (
+                <TouchableOpacity
+                    style={styles.negativeButton}
+                    onPress={handleNegativeLog}
+                    disabled={completing}
+                    activeOpacity={0.7}
+                >
+                    {completing ? (
+                        <ActivityIndicator color="#fff" />
+                    ) : (
+                        <>
+                            <Text style={styles.negativeButtonIcon}>👆</Text>
+                            <Text style={styles.negativeButtonText}>I Slipped Up</Text>
+                        </>
+                    )}
+                </TouchableOpacity>
+            ) : (
+                <TouchableOpacity
+                    style={[
+                        styles.completeButton,
+                        statusInfo.urgent && styles.completeButtonUrgent,
+                    ]}
+                    onPress={handleComplete}
+                    disabled={completing}
+                    activeOpacity={0.7}
+                >
+                    {completing ? (
+                        <ActivityIndicator color="#fff" />
+                    ) : (
+                        <>
+                            <Text style={styles.completeButtonIcon}>📸</Text>
+                            <Text style={styles.completeButtonText}>Mark Complete</Text>
+                        </>
+                    )}
+                </TouchableOpacity>
+            )}
         </View>
     );
 }
@@ -168,25 +277,46 @@ const styles = StyleSheet.create({
         width: 56,
         height: 56,
         borderRadius: 16,
-        backgroundColor: colors.surfaceHighlight,
+        backgroundColor: `${colors.success}15`,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 16,
+    },
+    emojiContainerNegative: {
+        backgroundColor: `${colors.error}15`,
     },
     emoji: {
         fontSize: 28,
     },
     titleContainer: {
         flex: 1,
+        marginRight: 12,
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     title: {
         color: colors.text,
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: 'bold',
+    },
+    modeBadge: {
+        backgroundColor: `${colors.success}20`,
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+        borderRadius: 8,
+    },
+    modeBadgeNegative: {
+        backgroundColor: `${colors.error}20`,
+    },
+    modeBadgeText: {
+        fontSize: 12,
     },
     frequency: {
         color: colors.textMuted,
-        fontSize: 13,
+        fontSize: 12,
         marginTop: 4,
     },
     calendarButton: {
@@ -209,6 +339,7 @@ const styles = StyleSheet.create({
     statusText: {
         fontWeight: '600',
         textAlign: 'center',
+        fontSize: 14,
     },
     statsRow: {
         flexDirection: 'row',
@@ -216,7 +347,7 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         backgroundColor: colors.surfaceHighlight,
         borderRadius: 12,
-        padding: 16,
+        padding: 14,
     },
     stat: {
         flex: 1,
@@ -224,24 +355,24 @@ const styles = StyleSheet.create({
     },
     statDivider: {
         width: 1,
-        height: 30,
+        height: 28,
         backgroundColor: colors.border,
-        marginHorizontal: 16,
+        marginHorizontal: 12,
     },
     statValue: {
         color: colors.text,
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: '600',
     },
     statLabel: {
         color: colors.textMuted,
-        fontSize: 11,
-        marginTop: 4,
+        fontSize: 10,
+        marginTop: 3,
     },
     completeButton: {
         flexDirection: 'row',
         backgroundColor: colors.success,
-        paddingVertical: 16,
+        paddingVertical: 15,
         borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
@@ -256,14 +387,34 @@ const styles = StyleSheet.create({
         shadowColor: colors.primary,
     },
     completeButtonIcon: {
-        color: '#fff',
         fontSize: 18,
-        fontWeight: 'bold',
         marginRight: 8,
     },
     completeButtonText: {
         color: '#fff',
-        fontSize: 16,
+        fontSize: 15,
+        fontWeight: 'bold',
+    },
+    negativeButton: {
+        flexDirection: 'row',
+        backgroundColor: colors.error,
+        paddingVertical: 15,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: colors.error,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    negativeButtonIcon: {
+        fontSize: 18,
+        marginRight: 8,
+    },
+    negativeButtonText: {
+        color: '#fff',
+        fontSize: 15,
         fontWeight: 'bold',
     },
 });

@@ -180,7 +180,9 @@ export interface Goal {
     description: string | null;
     emoji: string;
     goal_type: 'frequency' | 'daily' | 'weekly';
+    goal_mode: 'positive' | 'negative'; // positive = achievement, negative = habit breaking
     frequency_days: number;
+    target_per_week: number | null; // For "3x per week" type goals
     penalty_amount: number;
     is_active: boolean;
     created_by: string;
@@ -195,6 +197,7 @@ export interface GoalCompletion {
     completed_at: string;
     proof_photo_url: string | null;
     notes: string | null;
+    occurrence_count: number; // For negative goals, how many at once (e.g., 2 cigarettes)
     created_at: string;
 }
 
@@ -211,6 +214,25 @@ export interface GoalStatus {
     is_overdue: boolean;
     days_remaining: number;
     total_completions: number;
+}
+
+// Performance stats for a user on a goal
+export interface GoalPerformance {
+    user_id: string;
+    user_name: string;
+    completions_this_week: number;
+    target_completions: number;
+    percentage: number;
+    is_on_track: boolean;
+}
+
+// Daily stats for graph
+export interface GoalDailyStat {
+    user_id: string;
+    user_name: string;
+    day_date: string;
+    completion_count: number;
+    has_photo: boolean;
 }
 
 // Message types for group chat

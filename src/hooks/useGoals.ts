@@ -8,6 +8,34 @@ export function useGoals(groupId: string) {
     const [goals, setGoals] = useState<GoalWithCompletions[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [overdueProcessed, setOverdueProcessed] = useState(false);
+
+    // Process overdue goals (auto-failure at midnight check)
+    const processOverdueGoals = useCallback(async () => {
+        if (!user || !groupId || user.id === 'guest_user_id') return;
+
+        try {
+            const { data, error: rpcError } = await supabase.rpc('process_overdue_goals', {
+                p_group_id: groupId,
+            });
+
+            if (rpcError) {
+                // Function might not exist yet - that's OK, just skip
+                if (!rpcError.message.includes('does not exist')) {
+                    console.warn('Overdue processing error:', rpcError.message);
+                }
+                return;
+            }
+
+            if (data?.failures_processed > 0) {
+                // Will trigger a refetch below
+                return data;
+            }
+        } catch (err) {
+            // Silently fail - this is a background operation
+        }
+        return null;
+    }, [user, groupId]);
 
     const fetchGoals = useCallback(async () => {
         if (!user || !groupId) return;
@@ -22,6 +50,12 @@ export function useGoals(groupId: string) {
         try {
             setLoading(true);
             setError(null);
+
+            // First, process any overdue goals (only once per session)
+            if (!overdueProcessed) {
+                await processOverdueGoals();
+                setOverdueProcessed(true);
+            }
 
             // Fetch goals for the group
             const { data: goalsData, error: goalsError } = await supabase
@@ -64,7 +98,7 @@ export function useGoals(groupId: string) {
         } finally {
             setLoading(false);
         }
-    }, [user, groupId]);
+    }, [user, groupId, overdueProcessed, processOverdueGoals]);
 
     useEffect(() => {
         fetchGoals();
@@ -77,7 +111,9 @@ export function useGoals(groupId: string) {
         frequencyDays: number,
         penaltyAmount: number,
         description?: string,
-        goalType: 'frequency' | 'daily' | 'weekly' = 'frequency'
+        goalType: 'frequency' | 'daily' | 'weekly' = 'frequency',
+        goalMode: 'positive' | 'negative' = 'positive',
+        targetPerWeek?: number | null
     ) {
         if (!user) throw new Error('Not authenticated');
 
@@ -89,7 +125,9 @@ export function useGoals(groupId: string) {
                 emoji,
                 description,
                 goal_type: goalType,
+                goal_mode: goalMode,
                 frequency_days: frequencyDays,
+                target_per_week: targetPerWeek || null,
                 penalty_amount: penaltyAmount,
                 created_by: user.id,
             })
@@ -193,16 +231,81 @@ export function useGoals(groupId: string) {
         );
     }
 
+    // Log a negative occurrence (for habit-breaking goals)
+    async function logNegativeOccurrence(goalId: string, count: number = 1) {
+        if (!user) throw new Error('Not authenticated');
+
+        // Use RPC if available, otherwise direct insert
+        try {
+            const { data, error: rpcError } = await supabase.rpc('log_negative_occurrence', {
+                p_goal_id: goalId,
+                p_count: count,
+            });
+
+            if (rpcError) {
+                // If function doesn't exist, fallback to direct insert
+                if (rpcError.message.includes('does not exist')) {
+                    const { error: insertError } = await supabase
+                        .from('goal_completions')
+                        .insert({
+                            goal_id: goalId,
+                            user_id: user.id,
+                            occurrence_count: count,
+                        });
+                    if (insertError) throw insertError;
+                } else {
+                    throw rpcError;
+                }
+            }
+
+            await fetchGoals();
+            return data;
+        } catch (err) {
+            // Fallback to direct insert
+            const { error: insertError } = await supabase
+                .from('goal_completions')
+                .insert({
+                    goal_id: goalId,
+                    user_id: user.id,
+                    occurrence_count: count,
+                });
+            if (insertError) throw insertError;
+            await fetchGoals();
+        }
+    }
+
+    // Get daily counts for the last 7 days (for graphs)
+    function getLast7DaysStats(goal: GoalWithCompletions): { date: string; count: number }[] {
+        const result: { date: string; count: number }[] = [];
+        const today = new Date();
+
+        for (let i = 6; i >= 0; i--) {
+            const date = new Date(today);
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toISOString().split('T')[0];
+
+            const dayCompletions = goal.completions
+                .filter(c => c.user_id === user?.id && c.completed_at.split('T')[0] === dateStr);
+
+            const count = dayCompletions.reduce((sum, c) => sum + (c.occurrence_count || 1), 0);
+            result.push({ date: dateStr, count });
+        }
+
+        return result;
+    }
+
     return {
         goals,
         loading,
         error,
         createGoal,
         logCompletion,
+        logNegativeOccurrence,
         deleteCompletion,
         deleteGoal,
         getGoalStatus,
         getCompletionsForDate,
+        getLast7DaysStats,
         refetch: fetchGoals,
     };
 }

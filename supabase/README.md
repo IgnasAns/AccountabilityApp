@@ -8,6 +8,8 @@ Run these SQL files in your Supabase Dashboard > SQL Editor in order:
 2. **`photo_proof_setup.sql`** - Photo proof feature (storage bucket, column)
 3. **`scheduled_goals_setup.sql`** - Scheduled goals feature (goals, completions)
 4. **`group_chat_setup.sql`** - Group chat feature (messages, real-time)
+5. **`auto_failure_setup.sql`** - Auto-failure for overdue goals
+6. **`enhanced_goals_setup.sql`** - Positive/Negative goal modes & stats
 
 ## Files
 
@@ -17,6 +19,30 @@ Run these SQL files in your Supabase Dashboard > SQL Editor in order:
 | `photo_proof_setup.sql` | Photo proof for failures |
 | `scheduled_goals_setup.sql` | Goals with frequency tracking |
 | `group_chat_setup.sql` | In-app messaging |
+| `auto_failure_setup.sql` | Auto-penalty when goals are missed |
+| `enhanced_goals_setup.sql` | Positive/Negative modes, weekly stats, graphs |
+
+## Goal Modes
+
+### ✅ Positive (Achievement)
+- Track goals like "Gym 3x/week"
+- Requires photo proof to complete
+- Auto-penalty if deadline missed
+
+### 🚫 Negative (Habit Breaking)
+- Track slip-ups like "Cigarettes smoked"
+- Quick tap to log each occurrence
+- Penalty applied per slip-up
+
+## How Auto-Failure Works
+
+When a user opens a group, the app calls `process_overdue_goals()` which:
+1. Checks all active goals in the group
+2. For each goal, calculates if any deadlines were missed
+3. Creates penalty transactions for missed deadlines
+4. Records processed failures to prevent double-charging
+
+This runs **on app open**, not at midnight (since we can't run scheduled jobs without Supabase Pro).
 
 ## /migrations (Legacy)
 

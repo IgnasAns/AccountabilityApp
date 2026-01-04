@@ -20,22 +20,26 @@ interface Props {
     onSubmit: (
         name: string,
         emoji: string,
+        goalMode: 'positive' | 'negative',
         frequencyDays: number,
         penaltyAmount: number,
+        targetPerWeek: number | null,
         description?: string
     ) => Promise<void>;
     groupName: string;
     defaultPenalty: number;
 }
 
-const EMOJI_OPTIONS = ['🏃', '💪', '📚', '🧘', '🥗', '💧', '😴', '🚭', '🎯', '✍️', '🧹', '💊'];
+const POSITIVE_EMOJIS = ['🏃', '💪', '📚', '🧘', '🥗', '💧', '😴', '🎯', '✍️', '🧹', '💊', '🚴'];
+const NEGATIVE_EMOJIS = ['🚭', '🍺', '🍰', '📱', '🎮', '☕', '🍕', '💸', '😤', '🛋️', '🍫', '🥤'];
 
 const FREQUENCY_OPTIONS = [
-    { label: 'Daily', days: 1 },
-    { label: 'Every 2 days', days: 2 },
-    { label: 'Every 3 days', days: 3 },
-    { label: 'Weekly', days: 7 },
-    { label: 'Custom', days: 0 },
+    { label: 'Daily', days: 1, perWeek: 7 },
+    { label: '3x/week', days: 2, perWeek: 3 },
+    { label: 'Every 2 days', days: 2, perWeek: null },
+    { label: 'Every 3 days', days: 3, perWeek: null },
+    { label: 'Weekly', days: 7, perWeek: 1 },
+    { label: 'Custom', days: 0, perWeek: null },
 ];
 
 export default function CreateGoalModal({
@@ -45,14 +49,20 @@ export default function CreateGoalModal({
     groupName,
     defaultPenalty,
 }: Props) {
+    // Mode selection
+    const [goalMode, setGoalMode] = useState<'positive' | 'negative'>('positive');
+
+    // Form fields
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [selectedEmoji, setSelectedEmoji] = useState('🎯');
     const [frequencyDays, setFrequencyDays] = useState(3);
+    const [targetPerWeek, setTargetPerWeek] = useState<number | null>(null);
     const [customDays, setCustomDays] = useState('3');
+    const [customPerWeek, setCustomPerWeek] = useState('3');
     const [penalty, setPenalty] = useState(defaultPenalty.toString());
     const [loading, setLoading] = useState(false);
-    const [selectedFrequency, setSelectedFrequency] = useState(2); // Default to "Every 3 days"
+    const [selectedFrequency, setSelectedFrequency] = useState(3); // Default to "Every 3 days"
 
     const safeHaptics = () => {
         if (Platform.OS !== 'web') {
@@ -62,12 +72,26 @@ export default function CreateGoalModal({
         }
     };
 
+    const handleModeChange = (mode: 'positive' | 'negative') => {
+        safeHaptics();
+        setGoalMode(mode);
+        // Reset emoji based on mode
+        setSelectedEmoji(mode === 'positive' ? '🎯' : '🚭');
+        // For negative mode, reset penalty to smaller value
+        if (mode === 'negative') {
+            setPenalty('0.50');
+        } else {
+            setPenalty(defaultPenalty.toString());
+        }
+    };
+
     const handleFrequencySelect = (index: number) => {
         safeHaptics();
         setSelectedFrequency(index);
         const option = FREQUENCY_OPTIONS[index];
         if (option.days > 0) {
             setFrequencyDays(option.days);
+            setTargetPerWeek(option.perWeek);
         }
     };
 
@@ -78,25 +102,33 @@ export default function CreateGoalModal({
             setLoading(true);
             safeHaptics();
 
-            const finalDays = selectedFrequency === 4 ? parseInt(customDays) || 1 : frequencyDays;
+            let finalDays = frequencyDays;
+            let finalPerWeek = targetPerWeek;
+
+            if (selectedFrequency === 5) { // Custom
+                if (goalMode === 'positive') {
+                    // Custom can be either X times per week or every X days
+                    finalPerWeek = parseInt(customPerWeek) || null;
+                    finalDays = parseInt(customDays) || 1;
+                } else {
+                    finalDays = 1; // Negative goals are logged individually
+                }
+            }
+
             const penaltyAmount = parseFloat(penalty) || defaultPenalty;
 
             await onSubmit(
                 name.trim(),
                 selectedEmoji,
+                goalMode,
                 finalDays,
                 penaltyAmount,
+                finalPerWeek,
                 description.trim() || undefined
             );
 
             // Reset form
-            setName('');
-            setDescription('');
-            setSelectedEmoji('🎯');
-            setFrequencyDays(3);
-            setSelectedFrequency(2);
-            setPenalty(defaultPenalty.toString());
-
+            resetForm();
             onClose();
         } catch (error) {
             console.error('Failed to create goal:', error);
@@ -105,11 +137,24 @@ export default function CreateGoalModal({
         }
     };
 
+    const resetForm = () => {
+        setName('');
+        setDescription('');
+        setGoalMode('positive');
+        setSelectedEmoji('🎯');
+        setFrequencyDays(3);
+        setTargetPerWeek(null);
+        setSelectedFrequency(3);
+        setPenalty(defaultPenalty.toString());
+    };
+
     const handleClose = () => {
         if (!loading) {
             onClose();
         }
     };
+
+    const currentEmojis = goalMode === 'positive' ? POSITIVE_EMOJIS : NEGATIVE_EMOJIS;
 
     return (
         <Modal
@@ -145,17 +190,61 @@ export default function CreateGoalModal({
                         >
                             {/* Header */}
                             <View style={styles.header}>
-                                <Text style={styles.title}>Create Goal</Text>
+                                <Text style={styles.title}>Create Task</Text>
                                 <Text style={styles.subtitle}>in {groupName}</Text>
+                            </View>
+
+                            {/* Mode Selector */}
+                            <View style={styles.modeSelector}>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.modeButton,
+                                        goalMode === 'positive' && styles.modeButtonActive,
+                                    ]}
+                                    onPress={() => handleModeChange('positive')}
+                                >
+                                    <Text style={styles.modeEmoji}>✅</Text>
+                                    <Text style={[
+                                        styles.modeText,
+                                        goalMode === 'positive' && styles.modeTextActive,
+                                    ]}>
+                                        Achievement
+                                    </Text>
+                                    <Text style={styles.modeSubtext}>
+                                        Track positive habits
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.modeButton,
+                                        goalMode === 'negative' && styles.modeButtonActiveNeg,
+                                    ]}
+                                    onPress={() => handleModeChange('negative')}
+                                >
+                                    <Text style={styles.modeEmoji}>🚫</Text>
+                                    <Text style={[
+                                        styles.modeText,
+                                        goalMode === 'negative' && styles.modeTextActiveNeg,
+                                    ]}>
+                                        Breaking Bad
+                                    </Text>
+                                    <Text style={styles.modeSubtext}>
+                                        Count slip-ups
+                                    </Text>
+                                </TouchableOpacity>
                             </View>
 
                             {/* Goal Name */}
                             <View style={styles.inputGroup}>
-                                <Text style={styles.label}>Goal Name *</Text>
+                                <Text style={styles.label}>
+                                    {goalMode === 'positive' ? 'Goal Name *' : 'Bad Habit Name *'}
+                                </Text>
                                 <TextInput
                                     value={name}
                                     onChangeText={setName}
-                                    placeholder="e.g., Go to the gym"
+                                    placeholder={goalMode === 'positive'
+                                        ? "e.g., Go to the gym"
+                                        : "e.g., Smoking cigarettes"}
                                     placeholderTextColor={colors.textMuted}
                                     style={styles.input}
                                     editable={!loading}
@@ -166,12 +255,16 @@ export default function CreateGoalModal({
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>Choose an Icon</Text>
                                 <View style={styles.emojiGrid}>
-                                    {EMOJI_OPTIONS.map((emoji) => (
+                                    {currentEmojis.map((emoji) => (
                                         <TouchableOpacity
                                             key={emoji}
                                             style={[
                                                 styles.emojiButton,
-                                                selectedEmoji === emoji && styles.emojiButtonSelected,
+                                                selectedEmoji === emoji && (
+                                                    goalMode === 'positive'
+                                                        ? styles.emojiButtonSelected
+                                                        : styles.emojiButtonSelectedNeg
+                                                ),
                                             ]}
                                             onPress={() => {
                                                 safeHaptics();
@@ -184,59 +277,76 @@ export default function CreateGoalModal({
                                 </View>
                             </View>
 
-                            {/* Frequency */}
-                            <View style={styles.inputGroup}>
-                                <Text style={styles.label}>How Often?</Text>
-                                <Text style={styles.helperText}>
-                                    You must complete this goal at least once within this period
-                                </Text>
-                                <View style={styles.frequencyGrid}>
-                                    {FREQUENCY_OPTIONS.map((option, index) => (
-                                        <TouchableOpacity
-                                            key={option.label}
-                                            style={[
-                                                styles.frequencyButton,
-                                                selectedFrequency === index && styles.frequencyButtonSelected,
-                                            ]}
-                                            onPress={() => handleFrequencySelect(index)}
-                                        >
-                                            <Text
+                            {/* Frequency - Only for positive goals */}
+                            {goalMode === 'positive' && (
+                                <View style={styles.inputGroup}>
+                                    <Text style={styles.label}>How Often?</Text>
+                                    <Text style={styles.helperText}>
+                                        You must complete this goal within the period
+                                    </Text>
+                                    <View style={styles.frequencyGrid}>
+                                        {FREQUENCY_OPTIONS.map((option, index) => (
+                                            <TouchableOpacity
+                                                key={option.label}
                                                 style={[
-                                                    styles.frequencyText,
-                                                    selectedFrequency === index && styles.frequencyTextSelected,
+                                                    styles.frequencyButton,
+                                                    selectedFrequency === index && styles.frequencyButtonSelected,
                                                 ]}
+                                                onPress={() => handleFrequencySelect(index)}
                                             >
-                                                {option.label}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-
-                                {selectedFrequency === 4 && (
-                                    <View style={styles.customDaysContainer}>
-                                        <Text style={styles.customDaysLabel}>Every</Text>
-                                        <TextInput
-                                            value={customDays}
-                                            onChangeText={setCustomDays}
-                                            keyboardType="number-pad"
-                                            style={styles.customDaysInput}
-                                            editable={!loading}
-                                        />
-                                        <Text style={styles.customDaysLabel}>days</Text>
+                                                <Text
+                                                    style={[
+                                                        styles.frequencyText,
+                                                        selectedFrequency === index && styles.frequencyTextSelected,
+                                                    ]}
+                                                >
+                                                    {option.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
                                     </View>
-                                )}
-                            </View>
+
+                                    {selectedFrequency === 5 && (
+                                        <View style={styles.customContainer}>
+                                            <View style={styles.customRow}>
+                                                <Text style={styles.customLabel}>Times per week:</Text>
+                                                <TextInput
+                                                    value={customPerWeek}
+                                                    onChangeText={setCustomPerWeek}
+                                                    keyboardType="number-pad"
+                                                    style={styles.customInput}
+                                                    editable={!loading}
+                                                />
+                                            </View>
+                                            <Text style={styles.orText}>— OR —</Text>
+                                            <View style={styles.customRow}>
+                                                <Text style={styles.customLabel}>Every</Text>
+                                                <TextInput
+                                                    value={customDays}
+                                                    onChangeText={setCustomDays}
+                                                    keyboardType="number-pad"
+                                                    style={styles.customInput}
+                                                    editable={!loading}
+                                                />
+                                                <Text style={styles.customLabel}>days</Text>
+                                            </View>
+                                        </View>
+                                    )}
+                                </View>
+                            )}
 
                             {/* Penalty */}
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>Penalty Amount (€)</Text>
                                 <Text style={styles.helperText}>
-                                    Amount charged when missing the deadline
+                                    {goalMode === 'positive'
+                                        ? 'Amount charged when missing the deadline'
+                                        : 'Amount charged each time you slip up'}
                                 </Text>
                                 <TextInput
                                     value={penalty}
                                     onChangeText={setPenalty}
-                                    placeholder="1.00"
+                                    placeholder="0.50"
                                     placeholderTextColor={colors.textMuted}
                                     keyboardType="decimal-pad"
                                     style={styles.input}
@@ -250,7 +360,7 @@ export default function CreateGoalModal({
                                 <TextInput
                                     value={description}
                                     onChangeText={setDescription}
-                                    placeholder="Additional details about this goal..."
+                                    placeholder="Additional details..."
                                     placeholderTextColor={colors.textMuted}
                                     multiline
                                     numberOfLines={2}
@@ -260,16 +370,28 @@ export default function CreateGoalModal({
                             </View>
 
                             {/* Preview */}
-                            <View style={styles.previewCard}>
+                            <View style={[
+                                styles.previewCard,
+                                goalMode === 'negative' && styles.previewCardNeg
+                            ]}>
                                 <Text style={styles.previewTitle}>Preview</Text>
                                 <View style={styles.previewContent}>
                                     <Text style={styles.previewEmoji}>{selectedEmoji}</Text>
                                     <View style={styles.previewInfo}>
-                                        <Text style={styles.previewName}>{name || 'Goal Name'}</Text>
+                                        <Text style={styles.previewName}>{name || 'Task Name'}</Text>
                                         <Text style={styles.previewFrequency}>
-                                            Every {selectedFrequency === 4 ? customDays : frequencyDays} days •
-                                            €{parseFloat(penalty) || defaultPenalty} penalty
+                                            {goalMode === 'positive'
+                                                ? `${targetPerWeek ? `${targetPerWeek}x/week` : `Every ${frequencyDays} days`} • €${parseFloat(penalty) || defaultPenalty} penalty`
+                                                : `€${parseFloat(penalty) || 0.5} per slip-up`}
                                         </Text>
+                                        <View style={[
+                                            styles.previewBadge,
+                                            goalMode === 'negative' && styles.previewBadgeNeg
+                                        ]}>
+                                            <Text style={styles.previewBadgeText}>
+                                                {goalMode === 'positive' ? '✅ Achievement' : '🚫 Breaking Bad'}
+                                            </Text>
+                                        </View>
                                     </View>
                                 </View>
                             </View>
@@ -288,13 +410,14 @@ export default function CreateGoalModal({
                                     disabled={loading || !name.trim()}
                                     style={[
                                         styles.submitButton,
+                                        goalMode === 'negative' && styles.submitButtonNeg,
                                         (loading || !name.trim()) && styles.disabledButton,
                                     ]}
                                 >
                                     {loading ? (
                                         <ActivityIndicator color="#fff" />
                                     ) : (
-                                        <Text style={styles.submitButtonText}>Create Goal</Text>
+                                        <Text style={styles.submitButtonText}>Create Task</Text>
                                     )}
                                 </TouchableOpacity>
                             </View>
@@ -319,7 +442,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
-        maxHeight: '90%',
+        maxHeight: '92%',
     },
     handleBarContainer: {
         alignItems: 'center',
@@ -340,7 +463,7 @@ const styles = StyleSheet.create({
     },
     header: {
         alignItems: 'center',
-        marginBottom: 24,
+        marginBottom: 20,
     },
     title: {
         color: colors.text,
@@ -350,6 +473,48 @@ const styles = StyleSheet.create({
     subtitle: {
         color: colors.textMuted,
         marginTop: 4,
+    },
+    modeSelector: {
+        flexDirection: 'row',
+        gap: 12,
+        marginBottom: 24,
+    },
+    modeButton: {
+        flex: 1,
+        backgroundColor: colors.surfaceHighlight,
+        borderRadius: 16,
+        padding: 16,
+        alignItems: 'center',
+        borderWidth: 2,
+        borderColor: 'transparent',
+    },
+    modeButtonActive: {
+        borderColor: colors.success,
+        backgroundColor: `${colors.success}15`,
+    },
+    modeButtonActiveNeg: {
+        borderColor: colors.error,
+        backgroundColor: `${colors.error}15`,
+    },
+    modeEmoji: {
+        fontSize: 28,
+        marginBottom: 8,
+    },
+    modeText: {
+        color: colors.text,
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    modeTextActive: {
+        color: colors.success,
+    },
+    modeTextActiveNeg: {
+        color: colors.error,
+    },
+    modeSubtext: {
+        color: colors.textMuted,
+        fontSize: 11,
+        marginTop: 2,
     },
     inputGroup: {
         marginBottom: 20,
@@ -375,7 +540,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
     },
     multilineInput: {
-        minHeight: 80,
+        minHeight: 70,
         textAlignVertical: 'top',
     },
     emojiGrid: {
@@ -384,8 +549,8 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     emojiButton: {
-        width: 48,
-        height: 48,
+        width: 44,
+        height: 44,
         borderRadius: 12,
         backgroundColor: colors.surfaceHighlight,
         justifyContent: 'center',
@@ -394,11 +559,15 @@ const styles = StyleSheet.create({
         borderColor: 'transparent',
     },
     emojiButtonSelected: {
-        borderColor: colors.primary,
-        backgroundColor: `${colors.primary}20`,
+        borderColor: colors.success,
+        backgroundColor: `${colors.success}20`,
+    },
+    emojiButtonSelectedNeg: {
+        borderColor: colors.error,
+        backgroundColor: `${colors.error}20`,
     },
     emojiText: {
-        fontSize: 24,
+        fontSize: 22,
     },
     frequencyGrid: {
         flexDirection: 'row',
@@ -406,7 +575,7 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     frequencyButton: {
-        paddingHorizontal: 16,
+        paddingHorizontal: 14,
         paddingVertical: 10,
         borderRadius: 20,
         backgroundColor: colors.surfaceHighlight,
@@ -419,43 +588,58 @@ const styles = StyleSheet.create({
     },
     frequencyText: {
         color: colors.textMuted,
-        fontSize: 14,
+        fontSize: 13,
     },
     frequencyTextSelected: {
         color: '#fff',
         fontWeight: '600',
     },
-    customDaysContainer: {
+    customContainer: {
+        marginTop: 12,
+        padding: 16,
+        backgroundColor: colors.surfaceHighlight,
+        borderRadius: 12,
+    },
+    customRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 12,
         gap: 8,
     },
-    customDaysLabel: {
+    customLabel: {
         color: colors.textMuted,
     },
-    customDaysInput: {
-        backgroundColor: colors.surfaceHighlight,
+    customInput: {
+        backgroundColor: colors.surface,
         color: colors.text,
-        paddingHorizontal: 16,
-        paddingVertical: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
         borderRadius: 8,
         width: 60,
         textAlign: 'center',
         borderWidth: 1,
         borderColor: colors.border,
     },
+    orText: {
+        color: colors.textMuted,
+        textAlign: 'center',
+        marginVertical: 8,
+        fontSize: 12,
+    },
     previewCard: {
-        backgroundColor: `${colors.primary}10`,
+        backgroundColor: `${colors.success}10`,
         borderRadius: 16,
         padding: 16,
         marginBottom: 24,
         borderWidth: 1,
-        borderColor: `${colors.primary}30`,
+        borderColor: `${colors.success}30`,
+    },
+    previewCardNeg: {
+        backgroundColor: `${colors.error}10`,
+        borderColor: `${colors.error}30`,
     },
     previewTitle: {
         color: colors.textMuted,
-        fontSize: 12,
+        fontSize: 11,
         marginBottom: 12,
         textTransform: 'uppercase',
         letterSpacing: 1,
@@ -465,21 +649,37 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     previewEmoji: {
-        fontSize: 40,
-        marginRight: 16,
+        fontSize: 36,
+        marginRight: 14,
     },
     previewInfo: {
         flex: 1,
     },
     previewName: {
         color: colors.text,
-        fontSize: 18,
+        fontSize: 17,
         fontWeight: '600',
     },
     previewFrequency: {
         color: colors.textMuted,
-        fontSize: 13,
-        marginTop: 4,
+        fontSize: 12,
+        marginTop: 3,
+    },
+    previewBadge: {
+        backgroundColor: `${colors.success}20`,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        alignSelf: 'flex-start',
+        marginTop: 8,
+    },
+    previewBadgeNeg: {
+        backgroundColor: `${colors.error}20`,
+    },
+    previewBadgeText: {
+        color: colors.text,
+        fontSize: 11,
+        fontWeight: '500',
     },
     buttonRow: {
         flexDirection: 'row',
@@ -500,10 +700,13 @@ const styles = StyleSheet.create({
     },
     submitButton: {
         flex: 1,
-        backgroundColor: colors.primary,
+        backgroundColor: colors.success,
         paddingVertical: 16,
         borderRadius: 12,
         alignItems: 'center',
+    },
+    submitButtonNeg: {
+        backgroundColor: colors.error,
     },
     disabledButton: {
         opacity: 0.6,

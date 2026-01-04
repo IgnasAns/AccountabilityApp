@@ -401,6 +401,10 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                         groupId={groupId}
                         groupName={group.name}
                         defaultPenalty={group.default_penalty_amount}
+                        groupMembers={members.map(m => ({
+                            id: m.user_id,
+                            name: m.profile?.name || 'Unknown'
+                        }))}
                     />
                 </View>
 

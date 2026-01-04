@@ -19,15 +19,17 @@ interface Props {
     groupId: string;
     groupName: string;
     defaultPenalty: number;
+    groupMembers?: { id: string; name: string }[];
 }
 
-export default function GoalsSection({ groupId, groupName, defaultPenalty }: Props) {
+export default function GoalsSection({ groupId, groupName, defaultPenalty, groupMembers = [] }: Props) {
     const {
         goals,
         loading,
         error,
         createGoal,
         logCompletion,
+        logNegativeOccurrence,
         getGoalStatus,
         refetch,
     } = useGoals(groupId);
@@ -41,13 +43,16 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty }: Pro
     const handleCreateGoal = async (
         name: string,
         emoji: string,
+        goalMode: 'positive' | 'negative',
         frequencyDays: number,
         penaltyAmount: number,
+        targetPerWeek: number | null,
         description?: string
     ) => {
         try {
-            await createGoal(name, emoji, frequencyDays, penaltyAmount, description);
-            StyledAlert.alert('Goal Created! 🎯', `"${name}" has been added to the group.`);
+            await createGoal(name, emoji, frequencyDays, penaltyAmount, description, 'frequency', goalMode, targetPerWeek);
+            const modeText = goalMode === 'positive' ? 'Goal' : 'Tracker';
+            StyledAlert.alert(`${modeText} Created! 🎯`, `"${name}" has been added to the group.`);
         } catch (err: any) {
             StyledAlert.alert('Error', err.message);
             throw err;
@@ -83,6 +88,20 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty }: Pro
         }
     };
 
+    // Handle negative goal logging
+    const handleNegativeLog = async (goalId: string, count: number) => {
+        try {
+            await logNegativeOccurrence(goalId, count);
+            const goal = goals.find(g => g.id === goalId);
+            StyledAlert.alert(
+                'Logged 📝',
+                `Slip-up recorded for "${goal?.name}".\n\n€${goal?.penalty_amount.toFixed(2)} penalty applied.`
+            );
+        } catch (err: any) {
+            StyledAlert.alert('Error', err.message);
+        }
+    };
+
     if (loading) {
         return (
             <View style={styles.loadingContainer}>
@@ -108,9 +127,9 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty }: Pro
             {/* Section Header */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.title}>📅 Scheduled Goals</Text>
+                    <Text style={styles.title}>📊 Tasks & Tracking</Text>
                     <Text style={styles.subtitle}>
-                        Track habits with photo proof
+                        Goals & habit tracking with penalties
                     </Text>
                 </View>
                 <TouchableOpacity
@@ -144,6 +163,7 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty }: Pro
                             goal={goal}
                             status={getGoalStatus(goal)}
                             onComplete={handleComplete}
+                            onNegativeLog={handleNegativeLog}
                             onViewCalendar={handleViewCalendar}
                         />
                     ))}
@@ -167,6 +187,7 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty }: Pro
                     setSelectedGoal(null);
                 }}
                 goal={selectedGoal}
+                groupMembers={groupMembers}
             />
 
             {/* Complete Goal Modal (with mandatory photo) */}
