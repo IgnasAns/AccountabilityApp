@@ -198,7 +198,8 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     };
 
     const handleMemberPress = (member: GroupMemberWithProfile) => {
-        safeHaptics('light');
+        console.log('Member pressed:', member.user_id);
+        safeHaptics('selection');
         setSelectedMember(member);
         setShowMemberModal(true);
     };
@@ -211,6 +212,7 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     };
 
     const handleNudge = async (member: GroupMemberWithProfile) => {
+        console.log('Nudging member:', member.user_id);
         if (!member.user_id || member.user_id === user?.id) return;
 
         safeHaptics('selection');
@@ -263,9 +265,9 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
             <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
                 {/* Top Nav Row */}
                 <View style={styles.topNav}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                    {/* <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
                         <Text style={styles.backIcon}>←</Text>
-                    </TouchableOpacity>
+                    </TouchableOpacity> */}
                     <View style={styles.headerTitleContainer}>
                         <Text style={styles.headerTitle} numberOfLines={1}>{group.name}</Text>
                     </View>
@@ -357,7 +359,7 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 {/* LEADERBOARD TAB */}
                 {activeTab === 'leaderboard' && (
                     <View style={styles.tabContent}>
-                        <Leaderboard groupId={groupId} />
+                        <Leaderboard groupId={groupId} onMemberPress={handleMemberIdPress} />
                     </View>
                 )}
 
@@ -811,6 +813,7 @@ const styles = StyleSheet.create({
         padding: 8,
     },
     memberRowContainer: {
+        width: '100%',
         flexDirection: 'row',
         alignItems: 'center',
         paddingRight: 16,

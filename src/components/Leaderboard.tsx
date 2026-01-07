@@ -15,9 +15,10 @@ import { useAuth } from '../hooks/useAuth';
 interface Props {
     groupId: string;
     showPeriodSelector?: boolean;
+    onMemberPress?: (userId: string) => void;
 }
 
-export default function Leaderboard({ groupId, showPeriodSelector = true }: Props) {
+export default function Leaderboard({ groupId, showPeriodSelector = true, onMemberPress }: Props) {
     const { user } = useAuth();
     const {
         leaderboard,
@@ -130,8 +131,10 @@ export default function Leaderboard({ groupId, showPeriodSelector = true }: Prop
                         const isMe = entry.user_id === user?.id;
 
                         return (
-                            <View
+                            <TouchableOpacity
                                 key={entry.user_id}
+                                onPress={() => onMemberPress?.(entry.user_id)}
+                                activeOpacity={0.7}
                                 style={[
                                     styles.leaderboardItem,
                                     isMe && styles.leaderboardItemMe,
@@ -184,7 +187,7 @@ export default function Leaderboard({ groupId, showPeriodSelector = true }: Prop
                                     <Text style={styles.scoreValue}>{entry.score}</Text>
                                     <Text style={styles.scoreLabel}>pts</Text>
                                 </View>
-                            </View>
+                            </TouchableOpacity>
                         );
                     })
                 )}
