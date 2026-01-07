@@ -102,7 +102,7 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     const handleShareInvite = async () => {
         if (!group) return;
         try {
-            const message = `Join my accountability group "${group.name}" on HabitFlow!\nUse code: ${group.invite_code}`;
+            const message = `Join my accountability group "${group.name}" on "Do It Mate!"\nUse code: ${group.invite_code}`;
             await Share.share({
                 message,
                 title: 'Join Group',
