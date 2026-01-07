@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { colors } from '../theme/colors';
 import { safeHaptics } from '../utils/haptics';
+import GoalTemplatePicker from './GoalTemplatePicker';
+import { GoalTemplate } from '../types/database';
 
 interface Props {
     visible: boolean;
@@ -63,6 +65,32 @@ export default function CreateGoalModal({
     const [penalty, setPenalty] = useState(defaultPenalty.toString());
     const [loading, setLoading] = useState(false);
     const [selectedFrequency, setSelectedFrequency] = useState(3); // Default to "Every 3 days"
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+
+    // Handle template selection
+    const handleTemplateSelect = (template: GoalTemplate) => {
+        safeHaptics('success');
+        setName(template.name);
+        setDescription(template.description || '');
+        setSelectedEmoji(template.emoji);
+        setGoalMode(template.goal_mode);
+        setPenalty(template.suggested_penalty.toString());
+
+        if (template.suggested_target_per_week) {
+            setTargetPerWeek(template.suggested_target_per_week);
+            // Find matching frequency option
+            const idx = FREQUENCY_OPTIONS.findIndex(
+                opt => opt.perWeek === template.suggested_target_per_week
+            );
+            setSelectedFrequency(idx >= 0 ? idx : 0);
+        } else {
+            setFrequencyDays(template.suggested_frequency_days);
+            const idx = FREQUENCY_OPTIONS.findIndex(
+                opt => opt.days === template.suggested_frequency_days && opt.perWeek === null
+            );
+            setSelectedFrequency(idx >= 0 ? idx : 3);
+        }
+    };
 
     const handleModeChange = (mode: 'positive' | 'negative') => {
         safeHaptics('light');
@@ -185,6 +213,19 @@ export default function CreateGoalModal({
                                 <Text style={styles.title}>Create Task</Text>
                                 <Text style={styles.subtitle}>in {groupName}</Text>
                             </View>
+
+                            {/* Browse Templates Button */}
+                            <TouchableOpacity
+                                style={styles.templateButton}
+                                onPress={() => setShowTemplatePicker(true)}
+                            >
+                                <Text style={styles.templateButtonEmoji}>📋</Text>
+                                <View style={styles.templateButtonTextContainer}>
+                                    <Text style={styles.templateButtonTitle}>Browse Templates</Text>
+                                    <Text style={styles.templateButtonSubtitle}>Quick-start with pre-built goals</Text>
+                                </View>
+                                <Text style={styles.templateButtonArrow}>→</Text>
+                            </TouchableOpacity>
 
                             {/* Mode Selector */}
                             <View style={styles.modeSelector}>
@@ -417,6 +458,13 @@ export default function CreateGoalModal({
                     </TouchableOpacity>
                 </TouchableOpacity>
             </KeyboardAvoidingView>
+
+            {/* Template Picker Modal */}
+            <GoalTemplatePicker
+                visible={showTemplatePicker}
+                onClose={() => setShowTemplatePicker(false)}
+                onSelectTemplate={handleTemplateSelect}
+            />
         </Modal>
     );
 }
@@ -705,6 +753,39 @@ const styles = StyleSheet.create({
     },
     submitButtonText: {
         color: '#fff',
+        fontWeight: 'bold',
+    },
+    templateButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surfaceHighlight,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 20,
+        borderWidth: 2,
+        borderColor: colors.primary + '30',
+        borderStyle: 'dashed',
+    },
+    templateButtonEmoji: {
+        fontSize: 28,
+        marginRight: 14,
+    },
+    templateButtonTextContainer: {
+        flex: 1,
+    },
+    templateButtonTitle: {
+        color: colors.text,
+        fontSize: 15,
+        fontWeight: '600',
+        marginBottom: 2,
+    },
+    templateButtonSubtitle: {
+        color: colors.textMuted,
+        fontSize: 12,
+    },
+    templateButtonArrow: {
+        color: colors.primary,
+        fontSize: 20,
         fontWeight: 'bold',
     },
 });

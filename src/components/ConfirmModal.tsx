@@ -8,6 +8,7 @@ import {
     Pressable,
     Animated,
     Platform,
+    ActivityIndicator,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { colors } from '../theme/colors';
@@ -21,6 +22,7 @@ interface ConfirmModalProps {
     confirmStyle?: 'danger' | 'primary';
     onConfirm: () => void;
     onCancel: () => void;
+    loading?: boolean;
 }
 
 export default function ConfirmModal({
@@ -32,6 +34,7 @@ export default function ConfirmModal({
     confirmStyle = 'primary',
     onConfirm,
     onCancel,
+    loading = false,
 }: ConfirmModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const scaleAnim = useRef(new Animated.Value(0.9)).current;
@@ -76,7 +79,7 @@ export default function ConfirmModal({
             visible={visible}
             transparent
             animationType="none"
-            onRequestClose={onCancel}
+            onRequestClose={loading ? undefined : onCancel}
             statusBarTranslucent
         >
             <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
@@ -85,7 +88,7 @@ export default function ConfirmModal({
                 ) : (
                     <View style={[StyleSheet.absoluteFill, styles.androidOverlay]} />
                 )}
-                <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
+                <Pressable style={StyleSheet.absoluteFill} onPress={loading ? undefined : onCancel} />
 
                 <Animated.View
                     style={[
@@ -120,17 +123,24 @@ export default function ConfirmModal({
                                 <TouchableOpacity
                                     style={[
                                         styles.button,
-                                        confirmStyle === 'danger' ? styles.dangerButton : styles.primaryButton
+                                        confirmStyle === 'danger' ? styles.dangerButton : styles.primaryButton,
+                                        loading && { opacity: 0.7 }
                                     ]}
-                                    onPress={onConfirm}
+                                    onPress={loading ? undefined : onConfirm}
                                     activeOpacity={0.7}
+                                    disabled={loading}
                                 >
-                                    <Text style={styles.confirmButtonText}>{confirmText}</Text>
+                                    {loading ? (
+                                        <ActivityIndicator color="#fff" />
+                                    ) : (
+                                        <Text style={styles.confirmButtonText}>{confirmText}</Text>
+                                    )}
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     style={[styles.button, styles.cancelButton]}
                                     onPress={onCancel}
                                     activeOpacity={0.7}
+                                    disabled={loading}
                                 >
                                     <Text style={styles.cancelButtonText}>{cancelText}</Text>
                                 </TouchableOpacity>

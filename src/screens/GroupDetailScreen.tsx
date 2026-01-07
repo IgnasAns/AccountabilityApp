@@ -26,7 +26,8 @@ import LogFailureModal from '../components/LogFailureModal';
 import ConfirmModal from '../components/ConfirmModal';
 import ProofPhotoViewer from '../components/ProofPhotoViewer';
 import GoalsSection from '../components/GoalsSection';
-import LeaderboardSection from '../components/LeaderboardSection';
+import Leaderboard from '../components/Leaderboard';
+import ActivityFeed from '../components/ActivityFeed';
 import { StyledAlert } from '../components/StyledAlert';
 import { useGoals } from '../hooks/useGoals';
 import MemberDetailModal from '../components/MemberDetailModal';
@@ -45,7 +46,7 @@ type RootStackParamList = {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 
-type TabOption = 'dashboard' | 'members' | 'settings';
+type TabOption = 'dashboard' | 'leaderboard' | 'activity' | 'members' | 'settings';
 
 export default function GroupDetailScreen({ navigation, route }: Props) {
     const { groupId } = route.params;
@@ -58,77 +59,114 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         pendingCredits,
         loading: txLoading,
         settleDebt,
-        refetch: refetchTx,
+        refetch: refetchTx
     } = useTransactions(groupId);
-    const { goals } = useGoals(groupId);
+    const { goals, loading: goalsLoading, refetch: refetchGoals } = useGoals(groupId);
 
     const [activeTab, setActiveTab] = useState<TabOption>('dashboard');
-    const [showFailureModal, setShowFailureModal] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
-    const [settlingId, setSettlingId] = useState<string | null>(null);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [showLeaveModal, setShowLeaveModal] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [showFailureModal, setShowFailureModal] = useState(false);
+    const [settlingId, setSettlingId] = useState<string | null>(null);
 
+    // Member detail modal
     const [selectedMember, setSelectedMember] = useState<GroupMemberWithProfile | null>(null);
     const [showMemberModal, setShowMemberModal] = useState(false);
 
-    const handleMemberPress = useCallback((member: GroupMemberWithProfile) => {
-        setSelectedMember(member);
-        setShowMemberModal(true);
-    }, []);
-
-    const handleMemberIdPress = useCallback((userId: string) => {
-        const member = members.find(m => m.user_id === userId);
-        if (member) {
-            handleMemberPress(member);
-        }
-    }, [members, handleMemberPress]);
-
-    const isCreator = group?.created_by === user?.id;
-
-    React.useLayoutEffect(() => {
-        navigation.setOptions({ headerShown: false });
-    }, [navigation]);
-
     useFocusEffect(
         useCallback(() => {
-            refetchGroup();
-            refetchTx();
+            onRefresh();
         }, [])
     );
 
     const onRefresh = async () => {
         setRefreshing(true);
-        await Promise.all([refetchGroup(), refetchTx()]);
+        safeHaptics('light');
+        await Promise.all([
+            refetchGroup(),
+            refetchTx(),
+            refetchGoals()
+        ]);
         setRefreshing(false);
     };
 
-    // Using centralized haptics utility from utils/haptics.ts
+    const handleShareInvite = async () => {
+        if (!group) return;
+        try {
+            const message = `Join my accountability group "${group.name}" on HabitFlow!\nUse code: ${group.invite_code}`;
+            await Share.share({
+                message,
+                title: 'Join Group',
+            });
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const handleCopyCode = async () => {
+        if (!group) return;
+        await Clipboard.setStringAsync(group.invite_code);
+        safeHaptics('success');
+        StyledAlert.alert('Copied! 📋', 'Invite code copied to clipboard');
+    };
 
     const handleTabChange = (tab: TabOption) => {
+        safeHaptics('light');
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setActiveTab(tab);
-        safeHaptics('heavy');
+    };
+
+    const handleDeleteGroup = async () => {
+        setIsDeleting(true);
+        try {
+            await deleteGroup(groupId);
+            safeHaptics('success');
+            navigation.goBack();
+        } catch (error: any) {
+            StyledAlert.alert('Error', error.message);
+        } finally {
+            setIsDeleting(false);
+            setShowDeleteModal(false);
+        }
+    };
+
+    const handleLeaveGroup = async () => {
+        setIsDeleting(true);
+        try {
+            await leaveGroup(groupId);
+            safeHaptics('success');
+            navigation.goBack();
+        } catch (error: any) {
+            StyledAlert.alert('Error', error.message);
+        } finally {
+            setIsDeleting(false);
+            setShowLeaveModal(false);
+        }
     };
 
     const handleLogFailure = () => {
-        safeHaptics('heavy');
+        safeHaptics('light');
         setShowFailureModal(true);
     };
 
     const handleFailureLogged = async () => {
         setShowFailureModal(false);
-        await Promise.all([refetchGroup(), refetchTx()]);
+        // Refresh everything to show new penalties
+        onRefresh();
+
+        // Switch to Balances tab so user can see the new debt
+        // setActiveTab('members'); 
     };
 
     const handleSettleDebt = async (transactionId: string) => {
+        setSettlingId(transactionId);
+        safeHaptics('selection');
         try {
-            setSettlingId(transactionId);
             await settleDebt(transactionId);
             safeHaptics('success');
-            await Promise.all([refetchGroup(), refetchTx()]);
-            StyledAlert.alert('Settled!', 'The debt has been marked as paid.');
+            refetchTx();
         } catch (error: any) {
             StyledAlert.alert('Error', error.message);
         } finally {
@@ -136,51 +174,30 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         }
     };
 
-    const handleShareInvite = async () => {
-        if (!group) return;
-        try {
-            await Share.share({
-                message: `Join my accountability group "${group.name}" on Accountability App! Code: ${group.invite_code}`,
-            });
-        } catch (error) {
-            console.error('Error sharing:', error);
-        }
+    const formatBalance = (amount: number) => {
+        return `€${Math.abs(amount).toFixed(2)}`;
     };
 
-    const handleDeleteGroup = async () => {
-        try {
-            setIsDeleting(true);
-            await deleteGroup(groupId);
-            safeHaptics('success');
-            setShowDeleteModal(false);
-            navigation.reset({ index: 0, routes: [{ name: 'MainTabs' as any }] });
-        } catch (error: any) {
-            StyledAlert.alert('Error', error.message || 'Failed to delete group');
-            setIsDeleting(false);
-        }
-    };
-
-    const handleLeaveGroup = async () => {
-        try {
-            setIsDeleting(true);
-            await leaveGroup(groupId);
-            safeHaptics('success');
-            setShowLeaveModal(false);
-            navigation.reset({ index: 0, routes: [{ name: 'MainTabs' as any }] });
-        } catch (error: any) {
-            StyledAlert.alert('Error', error.message || 'Failed to leave group');
-            setIsDeleting(false);
-        }
-    };
-
-    const formatBalance = (balance: number) => `€${Math.abs(balance).toFixed(2)}`;
-    const getBalanceColor = (balance: number) => {
-        if (balance > 0) return colors.success;
-        if (balance < 0) return colors.error;
+    const getBalanceColor = (amount: number) => {
+        if (amount > 0) return colors.success;
+        if (amount < 0) return colors.error;
         return colors.textMuted;
     };
 
-    if (groupLoading && !refreshing) {
+    const handleMemberPress = (member: GroupMemberWithProfile) => {
+        safeHaptics('light');
+        setSelectedMember(member);
+        setShowMemberModal(true);
+    };
+
+    const handleMemberIdPress = (userId: string) => {
+        const member = members.find(m => m.user_id === userId);
+        if (member) {
+            handleMemberPress(member);
+        }
+    };
+
+    if (groupLoading) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={colors.primary} />
@@ -198,6 +215,7 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
 
     const currentMember = members.find((m) => m.user_id === user?.id);
     const otherMembers = members.filter((m) => m.user_id !== user?.id);
+    const isCreator = group.created_by === user?.id;
 
     return (
         <View style={styles.container}>
@@ -216,12 +234,29 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 </View>
 
                 {/* Tabs */}
-                <View style={styles.tabsContainer}>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.tabsScroll}
+                    contentContainerStyle={styles.tabsContainer}
+                >
                     <TouchableOpacity
                         style={[styles.tab, activeTab === 'dashboard' && styles.activeTab]}
                         onPress={() => handleTabChange('dashboard')}
                     >
                         <Text style={[styles.tabText, activeTab === 'dashboard' && styles.activeTabText]}>Dashboard</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'leaderboard' && styles.activeTab]}
+                        onPress={() => handleTabChange('leaderboard')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'leaderboard' && styles.activeTabText]}>Leaderboard</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'activity' && styles.activeTab]}
+                        onPress={() => handleTabChange('activity')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'activity' && styles.activeTabText]}>Activity</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={[styles.tab, activeTab === 'members' && styles.activeTab]}
@@ -235,7 +270,7 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                     >
                         <Text style={[styles.tabText, activeTab === 'settings' && styles.activeTabText]}>Settings</Text>
                     </TouchableOpacity>
-                </View>
+                </ScrollView>
             </View>
 
             <ScrollView
@@ -270,15 +305,21 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                                 onMemberPress={handleMemberIdPress}
                             />
                         </View>
-
-                        <View style={styles.paddedSection}>
-                            <LeaderboardSection
-                                members={members}
-                                goals={goals}
-                                onMemberPress={handleMemberPress}
-                            />
-                        </View>
                     </>
+                )}
+
+                {/* LEADERBOARD TAB */}
+                {activeTab === 'leaderboard' && (
+                    <View style={styles.tabContent}>
+                        <Leaderboard groupId={groupId} />
+                    </View>
+                )}
+
+                {/* ACTIVITY TAB */}
+                {activeTab === 'activity' && (
+                    <View style={styles.tabContent}>
+                        <ActivityFeed groupId={groupId} showHeader={false} />
+                    </View>
                 )}
 
                 {/* MEMBERS & BALANCES TAB */}
@@ -348,94 +389,59 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                                         ) : (
                                             <View style={styles.memberAvatarPlaceholder}>
                                                 <Text style={styles.memberAvatarInitial}>
-                                                    {member.profile?.name?.charAt(0) || '?'}
+                                                    {member.profile?.name?.charAt(0).toUpperCase() || '?'}
                                                 </Text>
                                             </View>
                                         )}
                                         <View style={styles.memberInfo}>
                                             <Text style={styles.memberName}>
-                                                {member.profile?.name || 'Unknown'} {member.user_id === user?.id && '(You)'}
+                                                {member.profile?.name || 'Unknown User'}
+                                                {member.user_id === user?.id && ' (You)'}
+                                                {group.created_by === member.user_id && ' 👑'}
                                             </Text>
-                                            <Text style={styles.memberJoined}>
-                                                Joined {new Date(member.joined_at).toLocaleDateString()}
-                                            </Text>
-                                        </View>
-                                        <View style={styles.memberBalance}>
                                             <Text style={[
-                                                styles.balanceText,
-                                                member.current_balance >= 0 ? styles.textGreen : styles.textRed
+                                                styles.memberBalance,
+                                                { color: getBalanceColor(member.current_balance || 0) }
                                             ]}>
-                                                {member.current_balance >= 0 ? '+' : ''}€{member.current_balance.toFixed(2)}
+                                                {member.current_balance >= 0 ? 'Surplus: ' : 'Owes: '}
+                                                {formatBalance(member.current_balance)}
                                             </Text>
                                         </View>
+                                        <Text style={styles.arrowIcon}>→</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
                         </View>
-
-
                     </>
                 )}
 
                 {/* SETTINGS TAB */}
                 {activeTab === 'settings' && (
                     <View style={styles.sectionContainer}>
-                        <View style={styles.coverImageWrapper}>
-                            <TouchableOpacity
-                                style={styles.coverImageContainer}
-                                disabled={!isCreator}
-                                activeOpacity={0.8}
-                                onPress={async () => {
-                                    try {
-                                        const { pickImage, uploadGroupCover } = await import('../services/photoService');
-                                        const uri = await pickImage();
-                                        if (uri) {
-                                            safeHaptics('medium');
-                                            const publicUrl = await uploadGroupCover(uri, groupId);
-                                            await updateGroup(groupId, { image_url: publicUrl });
-                                            refetchGroup();
-                                            StyledAlert.alert('Success', 'Group image updated!');
-                                        }
-                                    } catch (error: any) {
-                                        StyledAlert.alert('Error', error.message);
-                                    }
-                                }}
-                            >
-                                {group.image_url ? (
-                                    <Image source={{ uri: group.image_url }} style={styles.coverImage} resizeMode="cover" />
-                                ) : (
-                                    <View style={[styles.coverPlaceholder, { backgroundColor: colors.surfaceHighlight }]}>
-                                        <Text style={{ fontSize: 40 }}>🖼️</Text>
-                                        {isCreator && <Text style={styles.coverPlaceholderText}>Set Cover Photo</Text>}
-                                    </View>
-                                )}
+                        <View style={styles.inviteCard}>
+                            <Text style={styles.inviteLabel}>Invite Code</Text>
+                            <TouchableOpacity style={styles.codeContainer} onPress={handleCopyCode}>
+                                <Text style={styles.codeText}>{group.invite_code}</Text>
+                                <Text style={styles.copyIcon}>📋</Text>
                             </TouchableOpacity>
+                            <Text style={styles.inviteHint}>Tap code to copy</Text>
                         </View>
 
-                        <TouchableOpacity
-                            style={styles.inviteCard}
-                            onPress={async () => {
-                                await Clipboard.setStringAsync(group.invite_code);
-                                safeHaptics('success');
-                                StyledAlert.alert('Copied!', `Code: ${group.invite_code}`);
-                            }}
-                        >
-                            <View>
-                                <Text style={styles.inviteLabel}>Invite Code</Text>
-                                <Text style={styles.inviteCode}>{group.invite_code}</Text>
-                            </View>
-                            <Text style={styles.copyText}>COPY</Text>
-                        </TouchableOpacity>
+                        <View style={styles.settingsGroup}>
+                            <Text style={styles.settingsTitle}>Danger Zone</Text>
+                            <TouchableOpacity
+                                style={styles.leaveButton}
+                                onPress={() => setShowLeaveModal(true)}
+                            >
+                                <Text style={styles.leaveButtonText}>Leave Group</Text>
+                            </TouchableOpacity>
 
-                        <View style={styles.dangerZone}>
-                            <Text style={styles.dangerTitle}>Danger Zone</Text>
-                            {isCreator ? (
-                                <TouchableOpacity onPress={() => setShowDeleteModal(true)} style={styles.dangerButton}>
-                                    <Text style={styles.dangerButtonText}>Delete Group</Text>
-                                </TouchableOpacity>
-                            ) : (
-                                <TouchableOpacity onPress={() => setShowLeaveModal(true)} style={styles.leaveButton}>
-                                    <Text style={styles.leaveButtonText}>Leave Group</Text>
+                            {isCreator && (
+                                <TouchableOpacity
+                                    style={styles.deleteButton}
+                                    onPress={() => setShowDeleteModal(true)}
+                                >
+                                    <Text style={styles.deleteButtonText}>Delete Group</Text>
                                 </TouchableOpacity>
                             )}
                         </View>
@@ -443,22 +449,19 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 )}
             </ScrollView>
 
-            {/* Floating Action Button (Only on Dashboard) */}
+            {/* Log Failure Trigger Button (only visible on dashboard) */}
             {activeTab === 'dashboard' && (
-                <View style={[styles.fabContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-                    <TouchableOpacity
-                        onPress={handleLogFailure}
-                        activeOpacity={0.8}
-                        style={styles.fabButton}
-                    >
-                        <Text style={styles.fabTitle}>I FAILED</Text>
-                        <Text style={styles.fabSubtitle}>
-                            Pay €{group.default_penalty_amount.toFixed(2)}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                    style={styles.fab}
+                    onPress={handleLogFailure}
+                    activeOpacity={0.8}
+                >
+                    <Text style={styles.fabIcon}>💸</Text>
+                    <Text style={styles.fabText}>Log Failure</Text>
+                </TouchableOpacity>
             )}
 
+            {/* Modals */}
             <LogFailureModal
                 visible={showFailureModal}
                 onClose={() => setShowFailureModal(false)}
@@ -466,35 +469,37 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 groupId={groupId}
                 groupName={group.name}
                 penaltyAmount={group.default_penalty_amount}
-                memberCount={otherMembers.length}
-            />
-
-            <MemberDetailModal
-                visible={showMemberModal}
-                onClose={() => setShowMemberModal(false)}
-                member={selectedMember}
-                isCurrentUser={selectedMember?.user_id === user?.id}
-                groupCreatorId={group?.created_by}
+                memberCount={members.length}
             />
 
             <ConfirmModal
                 visible={showDeleteModal}
-                title="Delete Group?"
-                message="Permanently delete this group and all data?"
-                confirmText={isDeleting ? "Deleting..." : "Delete Group"}
+                title="Delete Group"
+                message="Are you sure you want to delete this group? This action cannot be undone and all data will be lost."
+                confirmText="Delete"
                 onConfirm={handleDeleteGroup}
                 onCancel={() => setShowDeleteModal(false)}
+                loading={isDeleting}
                 confirmStyle="danger"
             />
 
             <ConfirmModal
                 visible={showLeaveModal}
-                title="Leave Group?"
-                message="Are you sure you want to leave?"
-                confirmText={isDeleting ? "Leaving..." : "Leave Group"}
+                title="Leave Group"
+                message="Are you sure you want to leave this group? Your balance should be settled before leaving."
+                confirmText="Leave"
                 onConfirm={handleLeaveGroup}
                 onCancel={() => setShowLeaveModal(false)}
+                loading={isDeleting}
                 confirmStyle="danger"
+            />
+
+            <MemberDetailModal
+                visible={showMemberModal}
+                member={selectedMember}
+                onClose={() => setShowMemberModal(false)}
+                isCurrentUser={selectedMember?.user_id === user?.id}
+                groupCreatorId={group.created_by}
             />
         </View>
     );
@@ -564,83 +569,86 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         borderRadius: 20,
-        backgroundColor: colors.surface,
+        backgroundColor: colors.surfaceHighlight,
     },
     shareIcon: {
         fontSize: 20,
     },
+    tabsScroll: {
+        maxHeight: 50,
+    },
     tabsContainer: {
         flexDirection: 'row',
-        marginHorizontal: 16,
-        backgroundColor: colors.surfaceHighlight,
-        borderRadius: 12,
-        padding: 4,
-        marginBottom: 16, // Increased from 8
+        paddingHorizontal: 16,
+        paddingBottom: 12,
+        gap: 12,
     },
     tab: {
-        flex: 1,
+        paddingHorizontal: 16,
         paddingVertical: 8,
-        alignItems: 'center',
-        borderRadius: 10,
+        borderRadius: 20,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     activeTab: {
-        backgroundColor: colors.text, // White/Light active tab for high contrast
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-        elevation: 4,
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
     },
     tabText: {
-        fontSize: 13,
+        fontSize: 14,
         fontWeight: '600',
         color: colors.textMuted,
     },
     activeTabText: {
-        color: colors.background, // Dark text on light tab
-        fontWeight: '800',
+        color: '#fff',
     },
     content: {
-        paddingTop: 16,
-        paddingBottom: 140, // Increased to prevent FAB overlap
+        paddingBottom: 40,
+    },
+    tabContent: {
+        flex: 1,
+        minHeight: 400,
     },
     penaltyCard: {
         flexDirection: 'row',
-        backgroundColor: colors.surfaceHighlight, // Slightly lighter than surface
-        marginHorizontal: 16,
-        padding: 24,
-        borderRadius: 24,
+        backgroundColor: colors.surface,
+        margin: 16,
+        padding: 20,
+        borderRadius: 20,
         justifyContent: 'space-around',
         alignItems: 'center',
-        marginBottom: 24,
         borderWidth: 1,
-        borderColor: colors.border + '40', // Subtle border
-    },
-    penaltyLabel: {
-        color: colors.textMuted,
-        fontSize: 12,
-        fontWeight: '600',
-        textTransform: 'uppercase',
-        marginBottom: 4,
-        textAlign: 'center',
-    },
-    penaltyValue: {
-        color: colors.text,
-        fontSize: 20,
-        fontWeight: '800',
-        textAlign: 'center',
+        borderColor: colors.border,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 4,
     },
     verticalDivider: {
         width: 1,
         height: 40,
         backgroundColor: colors.border,
     },
-    sectionContainer: {
-        paddingHorizontal: 16,
-        marginTop: 16,
+    penaltyLabel: {
+        color: colors.textMuted,
+        fontSize: 12,
+        marginBottom: 4,
+        textAlign: 'center',
+    },
+    penaltyValue: {
+        color: colors.text,
+        fontSize: 24,
+        fontWeight: 'bold',
+        textAlign: 'center',
     },
     paddedSection: {
         paddingHorizontal: 16,
+        marginBottom: 24,
+    },
+    sectionContainer: {
+        padding: 16,
     },
     sectionTitle: {
         fontSize: 18,
@@ -648,230 +656,229 @@ const styles = StyleSheet.create({
         color: colors.text,
         marginBottom: 12,
     },
+    debtCard: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: colors.error + '15',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+        borderLeftWidth: 4,
+        borderLeftColor: colors.error,
+    },
+    debtInfo: {
+        flex: 1,
+    },
+    debtName: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: colors.text,
+        marginBottom: 4,
+    },
+    debtDescription: {
+        fontSize: 13,
+        color: colors.textMuted,
+    },
+    debtAmount: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: colors.error,
+    },
+    creditCard: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        backgroundColor: colors.success + '15',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+        borderLeftWidth: 4,
+        borderLeftColor: colors.success,
+    },
+    creditInfo: {
+        flex: 1,
+    },
+    creditName: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: colors.text,
+        marginBottom: 4,
+    },
+    creditDescription: {
+        fontSize: 13,
+        color: colors.textMuted,
+    },
+    creditAction: {
+        alignItems: 'flex-end',
+    },
+    creditAmount: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: colors.success,
+        marginBottom: 8,
+    },
+    settleButton: {
+        backgroundColor: '#fff',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.success,
+    },
+    settleButtonText: {
+        color: colors.success,
+        fontSize: 12,
+        fontWeight: 'bold',
+    },
+    membersList: {
+        backgroundColor: colors.surface,
+        borderRadius: 16,
+        padding: 8,
+    },
     memberRow: {
         flexDirection: 'row',
         alignItems: 'center',
         padding: 12,
-        backgroundColor: colors.surface,
-        borderRadius: 16,
-        marginBottom: 8,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    currentUserRow: {
-        borderColor: colors.primary,
-        backgroundColor: colors.primary + '10',
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
     },
     memberAvatar: {
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: colors.surfaceHighlight,
         marginRight: 12,
-    },
-    memberInfo: {
-        flex: 1,
-    },
-    memberName: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: colors.text,
-    },
-    memberBalance: {
-        justifyContent: 'center',
-        alignItems: 'flex-end',
-    },
-    debtCard: {
-        padding: 16,
-        backgroundColor: colors.surface,
-        borderRadius: 16,
-        marginBottom: 8,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    debtInfo: { flex: 1 },
-    debtName: { fontSize: 16, fontWeight: '700', color: colors.text },
-    debtDescription: { color: colors.textMuted, fontSize: 13 },
-    debtAmount: { fontSize: 18, fontWeight: '700', color: colors.error },
-    creditCard: {
-        padding: 16,
-        backgroundColor: colors.surface,
-        borderRadius: 16,
-        marginBottom: 8,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    creditInfo: { flex: 1 },
-    creditName: { fontSize: 16, fontWeight: '700', color: colors.text },
-    creditDescription: { color: colors.textMuted, fontSize: 13 },
-    creditAction: { flexDirection: 'row', alignItems: 'center' },
-    creditAmount: { fontSize: 18, fontWeight: '700', color: colors.success, marginRight: 12 },
-    settleButton: {
-        backgroundColor: colors.success,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 8,
-    },
-    settleButtonText: {
-        color: '#fff',
-        fontWeight: '700',
-        fontSize: 12,
-    },
-    coverImageWrapper: {
-        marginBottom: 24,
-    },
-    coverImageContainer: {
-        height: 200,
-        borderRadius: 24,
-        overflow: 'hidden',
-        backgroundColor: colors.surfaceHighlight,
-    },
-    coverImage: { width: '100%', height: '100%' },
-    coverPlaceholder: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    coverPlaceholderText: {
-        color: colors.textMuted,
-        fontWeight: '600',
-        marginTop: 8,
-    },
-    inviteCard: {
-        backgroundColor: colors.surface,
-        padding: 16,
-        borderRadius: 16,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: colors.border,
-        marginBottom: 24,
-    },
-    inviteLabel: {
-        color: colors.textMuted,
-        fontSize: 12,
-        textTransform: 'uppercase',
-        fontWeight: '600',
-        marginBottom: 4,
-    },
-    inviteCode: {
-        color: colors.primary,
-        fontSize: 24,
-        fontWeight: '800',
-        letterSpacing: 2,
-    },
-    copyText: {
-        color: colors.textMuted,
-        fontWeight: '700',
-        fontSize: 12,
-    },
-    dangerZone: {
-        marginTop: 24,
-        padding: 16,
-        borderRadius: 16,
-        backgroundColor: colors.error + '10',
-        borderWidth: 1,
-        borderColor: colors.error + '20',
-    },
-    dangerTitle: {
-        color: colors.error,
-        fontWeight: '700',
-        marginBottom: 12,
-        fontSize: 16,
-    },
-    dangerButton: {
-        backgroundColor: colors.error,
-        padding: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-    },
-    dangerButtonText: {
-        color: '#fff',
-        fontWeight: 'bold',
-        fontSize: 16,
-    },
-    leaveButton: {
-        backgroundColor: colors.surface,
-        padding: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: colors.warning,
-    },
-    leaveButtonText: {
-        color: colors.warning,
-        fontWeight: 'bold',
-        fontSize: 16,
-    },
-    fabContainer: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        alignItems: 'center',
-        paddingHorizontal: 20,
-    },
-    fabButton: {
-        backgroundColor: colors.error,
-        borderRadius: 24,
-        paddingVertical: 14,
-        width: '100%',
-        alignItems: 'center',
-        shadowColor: colors.error,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 8,
-        elevation: 6,
-    },
-    fabTitle: {
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: '900',
-    },
-    fabSubtitle: {
-        color: 'rgba(255,255,255,0.8)',
-        fontSize: 11,
-        fontWeight: '600',
-    },
-    membersList: {
-        backgroundColor: colors.surface,
-        borderRadius: 16,
-        overflow: 'hidden',
     },
     memberAvatarPlaceholder: {
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: colors.surfaceHighlight,
+        backgroundColor: colors.primary,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 12,
     },
     memberAvatarInitial: {
+        color: '#fff',
         fontSize: 16,
         fontWeight: 'bold',
-        color: colors.textMuted,
     },
-    memberJoined: {
-        fontSize: 12,
-        color: colors.textMuted,
+    memberInfo: {
+        flex: 1,
+    },
+    memberName: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.text,
+    },
+    memberBalance: {
+        fontSize: 13,
         marginTop: 2,
     },
-    balanceText: {
-        fontSize: 15,
-        fontWeight: '700',
+    arrowIcon: {
+        fontSize: 18,
+        color: colors.textMuted,
     },
-    textGreen: {
-        color: colors.success,
+    inviteCard: {
+        backgroundColor: colors.surfaceHighlight,
+        padding: 24,
+        borderRadius: 20,
+        alignItems: 'center',
+        marginBottom: 32,
+        borderWidth: 2,
+        borderColor: colors.primary,
+        borderStyle: 'dashed',
     },
-    textRed: {
+    inviteLabel: {
+        fontSize: 14,
+        color: colors.textMuted,
+        marginBottom: 12,
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    codeContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.primary,
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        borderRadius: 12,
+        gap: 12,
+    },
+    codeText: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: '#fff',
+        letterSpacing: 2,
+    },
+    copyIcon: {
+        fontSize: 20,
+    },
+    inviteHint: {
+        marginTop: 12,
+        fontSize: 12,
+        color: colors.textMuted,
+    },
+    settingsGroup: {
+        marginTop: 16,
+        gap: 12,
+    },
+    settingsTitle: {
+        fontSize: 14,
+        fontWeight: '600',
         color: colors.error,
+        marginBottom: 8,
+        textTransform: 'uppercase',
+    },
+    leaveButton: {
+        backgroundColor: colors.surface,
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.border,
+        alignItems: 'center',
+    },
+    leaveButtonText: {
+        color: colors.text,
+        fontSize: 16,
+        fontWeight: '500',
+    },
+    deleteButton: {
+        backgroundColor: colors.error + '10',
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.error,
+        alignItems: 'center',
+    },
+    deleteButtonText: {
+        color: colors.error,
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    fab: {
+        position: 'absolute',
+        bottom: 30,
+        right: 20,
+        backgroundColor: colors.primary,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        borderRadius: 30,
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 6,
+    },
+    fabIcon: {
+        fontSize: 20,
+        marginRight: 8,
+    },
+    fabText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: 'bold',
     },
 });

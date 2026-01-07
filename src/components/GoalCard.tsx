@@ -205,6 +205,18 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                     </Text>
                 </View>
                 <View style={styles.statDivider} />
+                {/* Streak Display - Only for positive goals */}
+                {!isNegative && (goal.current_streak || 0) > 0 && (
+                    <>
+                        <View style={styles.stat}>
+                            <Text style={[styles.statValue, styles.streakValue]}>
+                                🔥 {goal.current_streak || 0}
+                            </Text>
+                            <Text style={styles.statLabel}>Streak</Text>
+                        </View>
+                        <View style={styles.statDivider} />
+                    </>
+                )}
                 <View style={styles.stat}>
                     <Text style={styles.statValue}>{formatLastActivity()}</Text>
                     <Text style={styles.statLabel}>
@@ -372,6 +384,9 @@ const styles = StyleSheet.create({
         color: colors.textMuted,
         fontSize: 10,
         marginTop: 3,
+    },
+    streakValue: {
+        color: '#FF6B35',
     },
     completeButton: {
         flexDirection: 'row',
