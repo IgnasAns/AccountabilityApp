@@ -20,9 +20,10 @@ import { safeHaptics } from '../utils/haptics';
 interface Props {
     completionId: string;
     onCommentAdded?: () => void;
+    scrollEnabled?: boolean;
 }
 
-export default function CommentsSection({ completionId, onCommentAdded }: Props) {
+export default function CommentsSection({ completionId, onCommentAdded, scrollEnabled = true }: Props) {
     const {
         comments,
         loading,
@@ -119,6 +120,7 @@ export default function CommentsSection({ completionId, onCommentAdded }: Props)
                     keyExtractor={(item) => item.id}
                     style={styles.list}
                     showsVerticalScrollIndicator={false}
+                    scrollEnabled={scrollEnabled}
                 />
             )}
 

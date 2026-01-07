@@ -139,7 +139,7 @@ export default function GoalCompletionDetailModal({ visible, onClose, activityIt
                         {/* Comments Section */}
                         {activityItem.related_id && (
                             <View style={styles.commentsWrapper}>
-                                <CommentsSection completionId={activityItem.related_id} />
+                                <CommentsSection completionId={activityItem.related_id} scrollEnabled={false} />
                             </View>
                         )}
                     </ScrollView>
