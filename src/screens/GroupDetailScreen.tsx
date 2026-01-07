@@ -31,7 +31,9 @@ import ActivityFeed from '../components/ActivityFeed';
 import { StyledAlert } from '../components/StyledAlert';
 import { useGoals } from '../hooks/useGoals';
 import MemberDetailModal from '../components/MemberDetailModal';
-import { GroupMemberWithProfile } from '../types/database';
+import GoalCompletionDetailModal from '../components/GoalCompletionDetailModal';
+import { GroupMemberWithProfile, ActivityLogWithProfile } from '../types/database';
+import { supabase } from '../services/supabase';
 
 // Enable layout animation for Android
 if (Platform.OS === 'android') {
@@ -75,6 +77,10 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     // Member detail modal
     const [selectedMember, setSelectedMember] = useState<GroupMemberWithProfile | null>(null);
     const [showMemberModal, setShowMemberModal] = useState(false);
+
+    // Goal Completion Detail Modal
+    const [selectedActivity, setSelectedActivity] = useState<ActivityLogWithProfile | null>(null);
+    const [showCompletionModal, setShowCompletionModal] = useState(false);
 
     useFocusEffect(
         useCallback(() => {
@@ -204,6 +210,34 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         }
     };
 
+    const handleNudge = async (member: GroupMemberWithProfile) => {
+        if (!member.user_id || member.user_id === user?.id) return;
+
+        safeHaptics('selection');
+        try {
+            const { error } = await supabase.from('messages').insert({
+                group_id: groupId,
+                user_id: user?.id,
+                content: `👋 Nudge to @${member.profile.name}!`,
+                message_type: 'text'
+            });
+
+            if (error) throw error;
+            StyledAlert.alert('Nudge Sent', `You nudged ${member.profile.name}!`);
+        } catch (err) {
+            console.error(err);
+            StyledAlert.alert('Error', 'Failed to send nudge');
+        }
+    };
+
+    const handleActivityPress = (activity: ActivityLogWithProfile) => {
+        if (activity.event_type === 'goal_completed' && activity.related_id) {
+            safeHaptics('light');
+            setSelectedActivity(activity);
+            setShowCompletionModal(true);
+        }
+    };
+
     if (groupLoading) {
         return (
             <View style={styles.loadingContainer}>
@@ -330,7 +364,11 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 {/* ACTIVITY TAB */}
                 {activeTab === 'activity' && (
                     <View style={styles.tabContent}>
-                        <ActivityFeed groupId={groupId} showHeader={false} />
+                        <ActivityFeed
+                            groupId={groupId}
+                            showHeader={false}
+                            onActivityPress={handleActivityPress}
+                        />
                     </View>
                 )}
 
@@ -390,37 +428,45 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                             <Text style={styles.sectionTitle}>All Members</Text>
                             <View style={styles.membersList}>
                                 {members.map((member) => (
-                                    <TouchableOpacity
-                                        key={member.id}
-                                        style={styles.memberRow}
-                                        onPress={() => handleMemberPress(member)}
-                                        activeOpacity={0.7}
-                                    >
-                                        {member.profile?.avatar_url ? (
-                                            <Image source={{ uri: member.profile.avatar_url }} style={styles.memberAvatar} />
-                                        ) : (
-                                            <View style={styles.memberAvatarPlaceholder}>
-                                                <Text style={styles.memberAvatarInitial}>
-                                                    {member.profile?.name?.charAt(0).toUpperCase() || '?'}
+                                    <View key={member.id} style={styles.memberRowContainer}>
+                                        <TouchableOpacity
+                                            style={styles.memberRow}
+                                            onPress={() => handleMemberPress(member)}
+                                            activeOpacity={0.7}
+                                        >
+                                            {member.profile?.avatar_url ? (
+                                                <Image source={{ uri: member.profile.avatar_url }} style={styles.memberAvatar} />
+                                            ) : (
+                                                <View style={styles.memberAvatarPlaceholder}>
+                                                    <Text style={styles.memberAvatarInitial}>
+                                                        {member.profile?.name?.charAt(0).toUpperCase() || '?'}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                            <View style={styles.memberInfo}>
+                                                <Text style={styles.memberName}>
+                                                    {member.profile?.name || 'Unknown User'}
+                                                    {member.user_id === user?.id && ' (You)'}
+                                                    {group.created_by === member.user_id && ' 👑'}
+                                                </Text>
+                                                <Text style={[
+                                                    styles.memberBalance,
+                                                    { color: getBalanceColor(member.current_balance || 0) }
+                                                ]}>
+                                                    {member.current_balance >= 0 ? 'Surplus: ' : 'Owes: '}
+                                                    {formatBalance(member.current_balance)}
                                                 </Text>
                                             </View>
+                                        </TouchableOpacity>
+                                        {member.user_id !== user?.id && (
+                                            <TouchableOpacity
+                                                style={styles.nudgeButton}
+                                                onPress={() => handleNudge(member)}
+                                            >
+                                                <Text style={styles.nudgeIcon}>👋</Text>
+                                            </TouchableOpacity>
                                         )}
-                                        <View style={styles.memberInfo}>
-                                            <Text style={styles.memberName}>
-                                                {member.profile?.name || 'Unknown User'}
-                                                {member.user_id === user?.id && ' (You)'}
-                                                {group.created_by === member.user_id && ' 👑'}
-                                            </Text>
-                                            <Text style={[
-                                                styles.memberBalance,
-                                                { color: getBalanceColor(member.current_balance || 0) }
-                                            ]}>
-                                                {member.current_balance >= 0 ? 'Surplus: ' : 'Owes: '}
-                                                {formatBalance(member.current_balance)}
-                                            </Text>
-                                        </View>
-                                        <Text style={styles.arrowIcon}>→</Text>
-                                    </TouchableOpacity>
+                                    </View>
                                 ))}
                             </View>
                         </View>
@@ -522,6 +568,12 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 onClose={() => setShowMemberModal(false)}
                 isCurrentUser={selectedMember?.user_id === user?.id}
                 groupCreatorId={group.created_by}
+            />
+
+            <GoalCompletionDetailModal
+                visible={showCompletionModal}
+                activityItem={selectedActivity}
+                onClose={() => setShowCompletionModal(false)}
             />
         </View>
     );
@@ -758,12 +810,30 @@ const styles = StyleSheet.create({
         borderRadius: 16,
         padding: 8,
     },
+    memberRowContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingRight: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
     memberRow: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         padding: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
+    },
+    nudgeButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: colors.surfaceHighlight,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: 8,
+    },
+    nudgeIcon: {
+        fontSize: 18,
     },
     memberAvatar: {
         width: 40,
