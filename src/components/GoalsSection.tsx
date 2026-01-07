@@ -51,7 +51,16 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
         description?: string
     ) => {
         try {
-            await createGoal(name, emoji, frequencyDays, penaltyAmount, description, 'frequency', goalMode, targetPerWeek);
+            await createGoal({
+                name,
+                emoji,
+                frequencyDays,
+                penaltyAmount,
+                description,
+                goalType: 'frequency',
+                goalMode,
+                targetPerWeek,
+            });
             const modeText = goalMode === 'positive' ? 'Goal' : 'Tracker';
             StyledAlert.alert(`${modeText} Created! 🎯`, `"${name}" has been added to the group.`);
         } catch (err: any) {

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { useAuth } from './useAuth';
-import { Goal, GoalCompletion, GoalWithCompletions, GoalStatus } from '../types/database';
+import { Goal, GoalCompletion, GoalWithCompletions, GoalStatus, GoalCategory } from '../types/database';
 
 export function useGoals(groupId: string) {
     const { user } = useAuth();
@@ -104,18 +104,41 @@ export function useGoals(groupId: string) {
         fetchGoals();
     }, [fetchGoals]);
 
-    // Create a new goal
-    async function createGoal(
-        name: string,
-        emoji: string,
-        frequencyDays: number,
-        penaltyAmount: number,
-        description?: string,
-        goalType: 'frequency' | 'daily' | 'weekly' = 'frequency',
-        goalMode: 'positive' | 'negative' = 'positive',
-        targetPerWeek?: number | null
-    ) {
+    // Create a new goal with enhanced options
+    interface CreateGoalOptions {
+        name: string;
+        emoji: string;
+        frequencyDays: number;
+        penaltyAmount: number;
+        description?: string;
+        goalType?: 'frequency' | 'daily' | 'weekly';
+        goalMode?: 'positive' | 'negative';
+        targetPerWeek?: number | null;
+        category?: GoalCategory;
+        tags?: string[];
+        requiresProof?: boolean;
+        penaltyEscalationEnabled?: boolean;
+        penaltyEscalationRate?: number;
+    }
+
+    async function createGoal(options: CreateGoalOptions) {
         if (!user) throw new Error('Not authenticated');
+
+        const {
+            name,
+            emoji,
+            frequencyDays,
+            penaltyAmount,
+            description,
+            goalType = 'frequency',
+            goalMode = 'positive',
+            targetPerWeek = null,
+            category = 'custom',
+            tags = [],
+            requiresProof = false,
+            penaltyEscalationEnabled = false,
+            penaltyEscalationRate = 1.5,
+        } = options;
 
         const { data, error: createError } = await supabase
             .from('goals')
@@ -127,9 +150,14 @@ export function useGoals(groupId: string) {
                 goal_type: goalType,
                 goal_mode: goalMode,
                 frequency_days: frequencyDays,
-                target_per_week: targetPerWeek || null,
+                target_per_week: targetPerWeek,
                 penalty_amount: penaltyAmount,
                 created_by: user.id,
+                category,
+                tags,
+                requires_proof: requiresProof,
+                penalty_escalation_enabled: penaltyEscalationEnabled,
+                penalty_escalation_rate: penaltyEscalationRate,
             })
             .select()
             .single();
@@ -294,18 +322,136 @@ export function useGoals(groupId: string) {
         return result;
     }
 
+    // Pause/unpause a goal
+    async function toggleGoalPause(goalId: string, pause: boolean, pauseUntil?: Date): Promise<boolean> {
+        if (!user) throw new Error('Not authenticated');
+
+        try {
+            // Try RPC first
+            const { data, error: rpcError } = await supabase.rpc('toggle_goal_pause', {
+                p_goal_id: goalId,
+                p_pause: pause,
+                p_until: pauseUntil?.toISOString() || null,
+            });
+
+            if (rpcError) {
+                // Function might not exist - update directly
+                if (rpcError.message.includes('does not exist')) {
+                    const { error: updateError } = await supabase
+                        .from('goals')
+                        .update({
+                            is_paused: pause,
+                            paused_at: pause ? new Date().toISOString() : null,
+                            paused_until: pause && pauseUntil ? pauseUntil.toISOString() : null,
+                        })
+                        .eq('id', goalId)
+                        .eq('created_by', user.id);
+
+                    if (updateError) throw updateError;
+                } else {
+                    throw rpcError;
+                }
+            }
+
+            await fetchGoals();
+            return true;
+        } catch (err) {
+            console.error('Error toggling goal pause:', err);
+            return false;
+        }
+    }
+
+    // Update a goal
+    async function updateGoal(goalId: string, updates: Partial<{
+        name: string;
+        description: string;
+        emoji: string;
+        penalty_amount: number;
+        frequency_days: number;
+        target_per_week: number | null;
+        category: GoalCategory;
+        tags: string[];
+        requires_proof: boolean;
+        penalty_escalation_enabled: boolean;
+        penalty_escalation_rate: number;
+    }>): Promise<boolean> {
+        if (!user) throw new Error('Not authenticated');
+
+        try {
+            const { error: updateError } = await supabase
+                .from('goals')
+                .update(updates)
+                .eq('id', goalId)
+                .eq('created_by', user.id);
+
+            if (updateError) throw updateError;
+
+            await fetchGoals();
+            return true;
+        } catch (err) {
+            console.error('Error updating goal:', err);
+            return false;
+        }
+    }
+
+    // Get streak info for a goal
+    function getStreakInfo(goal: GoalWithCompletions): { current: number; longest: number; isActive: boolean } {
+        return {
+            current: goal.current_streak || 0,
+            longest: goal.longest_streak || 0,
+            isActive: !goal.is_paused && goal.is_active,
+        };
+    }
+
+    // Check if goal requires proof
+    function requiresProof(goal: GoalWithCompletions): boolean {
+        return goal.requires_proof || false;
+    }
+
+    // Calculate effective penalty (with escalation)
+    function getEffectivePenalty(goal: GoalWithCompletions): number {
+        if (!goal.penalty_escalation_enabled) {
+            return goal.penalty_amount;
+        }
+        const multiplier = Math.pow(goal.penalty_escalation_rate || 1.5, goal.consecutive_failures || 0);
+        return Math.min(goal.penalty_amount * multiplier, goal.penalty_amount * 10); // Cap at 10x
+    }
+
+    // Get goals by category
+    function getGoalsByCategory(category: GoalCategory): GoalWithCompletions[] {
+        return goals.filter(g => g.category === category);
+    }
+
+    // Get active (non-paused) goals
+    function getActiveGoals(): GoalWithCompletions[] {
+        return goals.filter(g => !g.is_paused && g.is_active);
+    }
+
+    // Get paused goals
+    function getPausedGoals(): GoalWithCompletions[] {
+        return goals.filter(g => g.is_paused);
+    }
+
     return {
         goals,
         loading,
         error,
         createGoal,
+        updateGoal,
         logCompletion,
         logNegativeOccurrence,
         deleteCompletion,
         deleteGoal,
+        toggleGoalPause,
         getGoalStatus,
         getCompletionsForDate,
         getLast7DaysStats,
+        getStreakInfo,
+        requiresProof,
+        getEffectivePenalty,
+        getGoalsByCategory,
+        getActiveGoals,
+        getPausedGoals,
         refetch: fetchGoals,
     };
 }

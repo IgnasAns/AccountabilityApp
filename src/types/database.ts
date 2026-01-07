@@ -177,6 +177,8 @@ export interface GroupBalance {
 }
 
 // Goal types for scheduled goals feature
+export type GoalCategory = 'fitness' | 'health' | 'productivity' | 'finance' | 'mindfulness' | 'social' | 'custom';
+
 export interface Goal {
     id: string;
     group_id: string;
@@ -192,6 +194,23 @@ export interface Goal {
     created_by: string;
     created_at: string;
     updated_at: string;
+    // Streak tracking
+    current_streak: number;
+    longest_streak: number;
+    streak_broken_at: string | null;
+    // Photo proof requirement
+    requires_proof: boolean;
+    // Category and tags
+    category: GoalCategory;
+    tags: string[];
+    // Pause support
+    is_paused: boolean;
+    paused_at: string | null;
+    paused_until: string | null;
+    // Penalty escalation
+    penalty_escalation_enabled: boolean;
+    penalty_escalation_rate: number;
+    consecutive_failures: number;
 }
 
 export interface GoalCompletion {
@@ -252,4 +271,105 @@ export interface Message {
 
 export interface MessageWithProfile extends Message {
     user: Profile;
+}
+
+// Activity log types
+export type ActivityEventType =
+    | 'goal_completed'
+    | 'goal_failed'
+    | 'goal_created'
+    | 'goal_deleted'
+    | 'failure_logged'
+    | 'debt_settled'
+    | 'member_joined'
+    | 'member_left'
+    | 'group_created'
+    | 'streak_achieved'
+    | 'streak_broken'
+    | 'comment_added';
+
+export interface ActivityLog {
+    id: string;
+    group_id: string;
+    user_id: string;
+    event_type: ActivityEventType;
+    related_id: string | null;
+    related_type: string | null;
+    metadata: Record<string, any>;
+    created_at: string;
+}
+
+export interface ActivityLogWithProfile extends ActivityLog {
+    user: Profile;
+}
+
+// Goal comments for peer encouragement
+export interface GoalComment {
+    id: string;
+    completion_id: string;
+    user_id: string;
+    content: string;
+    created_at: string;
+}
+
+export interface GoalCommentWithProfile extends GoalComment {
+    user: Profile;
+}
+
+// User badges/achievements
+export type BadgeType =
+    | 'first_completion'
+    | 'week_streak'
+    | 'month_streak'
+    | 'perfect_week'
+    | 'perfect_month'
+    | 'top_performer'
+    | 'consistency_king'
+    | 'early_bird'
+    | 'night_owl';
+
+export interface UserBadge {
+    id: string;
+    user_id: string;
+    group_id: string;
+    badge_type: BadgeType;
+    earned_at: string;
+    metadata: Record<string, any>;
+}
+
+// Goal templates
+export interface GoalTemplate {
+    id: string;
+    name: string;
+    description: string | null;
+    emoji: string;
+    category: GoalCategory;
+    goal_type: string;
+    goal_mode: 'positive' | 'negative';
+    suggested_frequency_days: number;
+    suggested_target_per_week: number | null;
+    suggested_penalty: number;
+    is_featured: boolean;
+    usage_count: number;
+    created_at: string;
+}
+
+// Leaderboard entry
+export interface LeaderboardEntry {
+    user_id: string;
+    user_name: string;
+    avatar_url: string | null;
+    completions_count: number;
+    streak_days: number;
+    failure_count: number;
+    score: number;
+}
+
+// Streak update result
+export interface StreakUpdateResult {
+    success: boolean;
+    new_streak: number;
+    longest_streak: number;
+    streak_continued: boolean;
+    error?: string;
 }
