@@ -42,6 +42,7 @@ if (Platform.OS === 'android') {
 
 type RootStackParamList = {
     GroupDetail: { groupId: string };
+    GroupChat: { groupId: string; groupName: string };
 };
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
@@ -110,6 +111,12 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         await Clipboard.setStringAsync(group.invite_code);
         safeHaptics('success');
         StyledAlert.alert('Copied! 📋', 'Invite code copied to clipboard');
+    };
+
+    const handleOpenChat = () => {
+        if (!group) return;
+        safeHaptics('light');
+        navigation.navigate('GroupChat', { groupId: group.id, groupName: group.name });
     };
 
     const handleTabChange = (tab: TabOption) => {
@@ -228,9 +235,14 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                     <View style={styles.headerTitleContainer}>
                         <Text style={styles.headerTitle} numberOfLines={1}>{group.name}</Text>
                     </View>
-                    <TouchableOpacity onPress={handleShareInvite} style={styles.shareButton}>
-                        <Text style={styles.shareIcon}>📤</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TouchableOpacity onPress={handleOpenChat} style={styles.shareButton}>
+                            <Text style={styles.shareIcon}>💬</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={handleShareInvite} style={styles.shareButton}>
+                            <Text style={styles.shareIcon}>📤</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* Tabs */}
