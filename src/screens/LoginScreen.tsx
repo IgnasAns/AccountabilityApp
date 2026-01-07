@@ -8,20 +8,24 @@ import {
     Platform,
     ActivityIndicator,
     StyleSheet,
+    Dimensions,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useAuth } from '../hooks/useAuth';
 import { StyledAlert } from '../components/StyledAlert';
 import { colors } from '../theme/colors';
-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
 }
 
+const { width } = Dimensions.get('window');
+
 export default function LoginScreen({ navigation }: Props) {
-    const { signIn, signInAsGuest } = useAuth();
+    const { signIn } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -55,105 +59,98 @@ export default function LoginScreen({ navigation }: Props) {
     };
 
     return (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={[styles.container, { paddingTop: insets.top }]}
-        >
-            <View style={styles.content}>
-                {/* Logo/Header */}
-                <View style={styles.header}>
-                    <Text style={styles.logoEmoji}>⚖️</Text>
-                    <Text style={styles.title}>
-                        Social Ledger
-                    </Text>
-                    <Text style={styles.subtitle}>
-                        Track accountability bets with friends
-                    </Text>
+        <View style={styles.container}>
+            <StatusBar style="light" />
+
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={[styles.keyboardView, { paddingTop: insets.top }]}
+            >
+                <View style={styles.content}>
+                    {/* Header Section */}
+                    <Animated.View
+                        entering={FadeInDown.delay(200).duration(1000).springify()}
+                        style={styles.header}
+                    >
+                        <View style={styles.iconContainer}>
+                            <Text style={styles.logoEmoji}>🤜🤛</Text>
+                        </View>
+                        <Text style={styles.title}>
+                            Do It Mate!
+                        </Text>
+                        <Text style={styles.subtitle}>
+                            Social Accountability Ledger
+                        </Text>
+                    </Animated.View>
+
+                    {/* Form Section */}
+                    <Animated.View
+                        entering={FadeInDown.delay(400).duration(1000).springify()}
+                        style={styles.formContainer}
+                    >
+                        {/* Error Message */}
+                        {error ? (
+                            <Animated.View entering={FadeInUp} style={styles.errorContainer}>
+                                <Text style={styles.errorText}>{error}</Text>
+                            </Animated.View>
+                        ) : null}
+
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Email</Text>
+                            <TextInput
+                                value={email}
+                                onChangeText={(text) => { setEmail(text); setError(''); }}
+                                placeholder="your@email.com"
+                                placeholderTextColor={colors.textMuted}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                autoComplete="email"
+                                style={styles.input}
+                                editable={!loading}
+                            />
+                        </View>
+
+                        <View style={styles.inputGroup}>
+                            <Text style={styles.label}>Password</Text>
+                            <TextInput
+                                value={password}
+                                onChangeText={(text) => { setPassword(text); setError(''); }}
+                                placeholder="••••••••"
+                                placeholderTextColor={colors.textMuted}
+                                secureTextEntry
+                                style={styles.input}
+                                editable={!loading}
+                            />
+                        </View>
+
+                        <TouchableOpacity
+                            onPress={handleLogin}
+                            disabled={loading}
+                            style={[styles.loginButton, loading && styles.disabledButton]}
+                            activeOpacity={0.8}
+                        >
+                            {loading ? (
+                                <ActivityIndicator color="#fff" />
+                            ) : (
+                                <Text style={styles.loginButtonText}>Sign In</Text>
+                            )}
+                        </TouchableOpacity>
+
+                        <View style={styles.footer}>
+                            <TouchableOpacity
+                                onPress={() => navigation.navigate('SignUp')}
+                                disabled={loading}
+                            >
+                                <Text style={styles.signUpText}>
+                                    New here? <Text style={styles.signUpTextHighlight}>Create account</Text>
+                                </Text>
+                            </TouchableOpacity>
+
+                        </View>
+                    </Animated.View>
                 </View>
-
-                {/* Form */}
-                <View style={styles.form}>
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Email</Text>
-                        <TextInput
-                            value={email}
-                            onChangeText={(text) => { setEmail(text); setError(''); }}
-                            placeholder="your@email.com"
-                            placeholderTextColor={colors.textMuted}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            autoComplete="email"
-                            style={styles.input}
-                            editable={!loading}
-                        />
-                    </View>
-
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Password</Text>
-                        <TextInput
-                            value={password}
-                            onChangeText={(text) => { setPassword(text); setError(''); }}
-                            placeholder="••••••••"
-                            placeholderTextColor={colors.textMuted}
-                            secureTextEntry
-                            style={styles.input}
-                            editable={!loading}
-                        />
-                    </View>
-                </View>
-
-                {/* Error Message */}
-                {error ? (
-                    <View style={styles.errorContainer}>
-                        <Text style={styles.errorText}>{error}</Text>
-                    </View>
-                ) : null}
-
-                {/* Login Button */}
-                <TouchableOpacity
-                    onPress={handleLogin}
-                    disabled={loading}
-                    style={[styles.loginButton, loading && styles.disabledButton]}
-                >
-                    {loading ? (
-                        <ActivityIndicator color="#fff" />
-                    ) : (
-                        <Text style={styles.loginButtonText}>Sign In</Text>
-                    )}
-                </TouchableOpacity>
-
-                {/* Sign Up Link */}
-                <TouchableOpacity
-                    onPress={() => navigation.navigate('SignUp')}
-                    style={styles.signUpLink}
-                    disabled={loading}
-                >
-                    <Text style={styles.signUpText}>
-                        Don't have an account?{' '}
-                        <Text style={styles.signUpTextHighlight}>Sign up</Text>
-                    </Text>
-                </TouchableOpacity>
-
-                {/* Guest Mode */}
-                <TouchableOpacity
-                    onPress={async () => {
-                        try {
-                            setLoading(true);
-                            await signInAsGuest();
-                        } catch (e: any) {
-                            console.error('Guest login failed', e);
-                            StyledAlert.alert('Error', 'Failed to sign in as guest: ' + (e.message || 'Unknown error'));
-                        } finally {
-                            setLoading(false);
-                        }
-                    }}
-                    style={styles.guestButton}
-                    disabled={loading}
-                >
-                    <Text style={styles.guestButtonText}>Continue as Guest (Test Mode)</Text>
-                </TouchableOpacity>
-            </View>
-        </KeyboardAvoidingView>
+            </KeyboardAvoidingView>
+        </View>
     );
 }
 
@@ -162,6 +159,9 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.background,
     },
+    keyboardView: {
+        flex: 1,
+    },
     content: {
         flex: 1,
         justifyContent: 'center',
@@ -169,91 +169,113 @@ const styles = StyleSheet.create({
     },
     header: {
         alignItems: 'center',
-        marginBottom: 48,
+        marginBottom: 40,
+    },
+    iconContainer: {
+        padding: 24,
+        backgroundColor: colors.surfaceHighlight,
+        borderRadius: 50,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: colors.border,
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 20,
+        elevation: 10,
     },
     logoEmoji: {
-        fontSize: 64,
-        marginBottom: 16,
+        fontSize: 48,
+        textAlign: 'center',
     },
     title: {
         color: colors.text,
         fontSize: 32,
-        fontWeight: 'bold',
+        fontWeight: '900',
+        letterSpacing: -0.5,
+        marginBottom: 8,
+        textAlign: 'center',
     },
     subtitle: {
         color: colors.textMuted,
+        fontSize: 16,
+        fontWeight: '500',
+        letterSpacing: 0.5,
+        opacity: 0.8,
         textAlign: 'center',
-        marginTop: 8,
     },
-    form: {
-        gap: 16,
+    formContainer: {
+        gap: 20,
     },
     inputGroup: {
-        marginBottom: 4,
+        gap: 8,
     },
     label: {
         color: colors.textMuted,
-        fontSize: 14,
-        marginBottom: 8,
+        fontSize: 12,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
         marginLeft: 4,
     },
     input: {
         backgroundColor: colors.surface,
         color: colors.text,
-        paddingHorizontal: 16,
-        paddingVertical: 16,
-        borderRadius: 12,
+        paddingHorizontal: 20,
+        paddingVertical: 18,
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: colors.border,
         fontSize: 16,
     },
     loginButton: {
         backgroundColor: colors.primary,
-        paddingVertical: 16,
-        borderRadius: 12,
+        paddingVertical: 18,
+        borderRadius: 16,
         alignItems: 'center',
-        marginTop: 32,
+        marginTop: 12,
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.3,
+        shadowRadius: 16,
+        elevation: 8,
     },
     disabledButton: {
         opacity: 0.7,
     },
     loginButtonText: {
         color: '#ffffff',
-        fontWeight: 'bold',
+        fontWeight: '800',
         fontSize: 18,
+        letterSpacing: 0.5,
     },
-    signUpLink: {
-        paddingVertical: 16,
+    errorContainer: {
+        padding: 16,
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(239, 68, 68, 0.3)',
+        marginBottom: 8,
+    },
+    errorText: {
+        color: colors.error,
+        fontSize: 14,
+        textAlign: 'center',
+        fontWeight: '500',
+    },
+    footer: {
+        marginTop: 24,
         alignItems: 'center',
-        marginTop: 16,
+        gap: 24,
     },
     signUpText: {
         color: colors.textMuted,
+        fontSize: 15,
     },
     signUpTextHighlight: {
         color: colors.primary,
-        fontWeight: '600',
-    },
-    guestButton: {
-        marginTop: 8,
-        alignItems: 'center',
-        padding: 12,
-    },
-    guestButtonText: {
-        color: colors.textMuted,
-        textDecorationLine: 'underline',
-    },
-    errorContainer: {
-        marginTop: 16,
-        padding: 12,
-        backgroundColor: '#fee2e2',
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: '#ef4444',
-    },
-    errorText: {
-        color: '#b91c1c',
-        fontSize: 14,
-        textAlign: 'center',
+        fontWeight: '700',
     },
 });

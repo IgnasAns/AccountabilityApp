@@ -42,6 +42,7 @@ export interface Database {
                     description: string | null;
                     default_penalty_amount: number;
                     invite_code: string;
+                    image_url: string | null;
                     created_by: string;
                     created_at: string;
                     updated_at: string;
@@ -52,6 +53,7 @@ export interface Database {
                     description?: string | null;
                     default_penalty_amount?: number;
                     invite_code?: string;
+                    image_url?: string | null;
                     created_by: string;
                     created_at?: string;
                     updated_at?: string;
@@ -60,6 +62,7 @@ export interface Database {
                     name?: string;
                     description?: string | null;
                     default_penalty_amount?: number;
+                    image_url?: string | null;
                     updated_at?: string;
                 };
             };
@@ -170,6 +173,7 @@ export interface TransactionWithProfiles extends Transaction {
 export interface GroupBalance {
     group: Group;
     balance: number;
+    memberAvatars?: string[];
 }
 
 // Goal types for scheduled goals feature

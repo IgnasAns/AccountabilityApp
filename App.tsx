@@ -10,6 +10,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 
 import { AuthProvider, useAuth } from './src/hooks/useAuth';
 import { AlertProvider } from './src/components/StyledAlert';
+import ErrorBoundary from './src/components/ErrorBoundary';
 import { colors } from './src/theme/colors';
 
 // Screens
@@ -21,6 +22,8 @@ import JoinGroupScreen from './src/screens/JoinGroupScreen';
 import GroupDetailScreen from './src/screens/GroupDetailScreen';
 import GroupChatScreen from './src/screens/GroupChatScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import ExploreScreen from './src/screens/ExploreScreen';
+import ActivityScreen from './src/screens/ActivityScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -36,25 +39,22 @@ function TabNavigator() {
           backgroundColor: colors.surface,
           borderTopWidth: 1,
           borderTopColor: colors.border,
-          paddingTop: 8,
-          paddingBottom: Platform.OS === 'android' ? Math.max(insets.bottom, 8) : insets.bottom,
-          height: Platform.OS === 'android' ? 64 + Math.max(insets.bottom, 8) : 60 + insets.bottom,
-          // Premium shadow effect
-          shadowColor: colors.primary,
+          height: Platform.OS === 'android' ? 70 + insets.bottom : 60 + insets.bottom,
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
+          paddingTop: 10,
+          // Premium glass-like shadow
+          shadowColor: '#000',
           shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.15,
-          shadowRadius: 12,
+          shadowOpacity: 0.3,
+          shadowRadius: 10,
           elevation: 20,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '600',
-          marginTop: 4,
-        },
-        tabBarIconStyle: {
-          marginTop: 4,
+          fontSize: 10,
+          fontWeight: '700',
+          marginTop: 2,
         },
       }}
     >
@@ -63,7 +63,54 @@ function TabNavigator() {
         component={HomeScreen}
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: size }}>🏠</Text>
+          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: 24 }}>🏠</Text>
+        }}
+      />
+      <Tab.Screen
+        name="ExploreTab"
+        component={ExploreScreen}
+        options={{
+          title: 'Explore',
+          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: 24 }}>🔍</Text>
+        }}
+      />
+      <Tab.Screen
+        name="AddTab"
+        component={CreateGroupScreen as any} // Using CreateGroup directly for now, or a modal opener
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            e.preventDefault(); // Prevent default tab switch
+            navigation.navigate('CreateGroup'); // Open as modal/stack
+          },
+        })}
+        options={{
+          title: '',
+          tabBarIcon: ({ color, size }) => (
+            <View style={{
+              width: 48,
+              height: 48,
+              borderRadius: 24,
+              backgroundColor: colors.primary,
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginTop: -15,
+              shadowColor: colors.primary,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.4,
+              shadowRadius: 8,
+              elevation: 8,
+            }}>
+              <Text style={{ color: colors.text, fontSize: 28, fontWeight: 'bold' }}>+</Text>
+            </View>
+          )
+        }}
+      />
+      <Tab.Screen
+        name="ActivityTab"
+        component={ActivityScreen}
+        options={{
+          title: 'Activity',
+          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: 24 }}>🔔</Text>
         }}
       />
       <Tab.Screen
@@ -71,7 +118,7 @@ function TabNavigator() {
         component={ProfileScreen}
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: size }}>👤</Text>
+          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: 24 }}>👤</Text>
         }}
       />
     </Tab.Navigator>
@@ -107,9 +154,10 @@ function AppNavigator() {
         component={TabNavigator}
         options={{ headerShown: false }}
       />
+
       <Stack.Screen
         name="CreateGroup"
-        component={CreateGroupScreen}
+        component={CreateGroupScreen as any}
         options={{ title: 'Create Group', headerBackTitle: 'Back' }}
       />
       <Stack.Screen
@@ -161,13 +209,15 @@ export default function App() {
   }, []);
 
   return (
-    <AuthProvider>
-      <SafeAreaProvider>
-        <AlertProvider>
-          <StatusBar style="light" />
-          <NavigationWrapper />
-        </AlertProvider>
-      </SafeAreaProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <SafeAreaProvider>
+          <AlertProvider>
+            <StatusBar style="light" />
+            <NavigationWrapper />
+          </AlertProvider>
+        </SafeAreaProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

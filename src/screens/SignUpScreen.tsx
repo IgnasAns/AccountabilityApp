@@ -91,7 +91,7 @@ export default function SignUpScreen({ navigation }: Props) {
                         Create Account
                     </Text>
                     <Text style={styles.subtitle}>
-                        Join Social Ledger and start holding yourself accountable
+                        Join Do It Mate! and start holding yourself accountable
                     </Text>
                 </View>
 
@@ -218,16 +218,19 @@ const styles = StyleSheet.create({
     },
     label: {
         color: colors.textMuted,
-        fontSize: 14,
+        fontSize: 13,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
         marginBottom: 8,
         marginLeft: 4,
     },
     input: {
-        backgroundColor: colors.surface,
+        backgroundColor: colors.surfaceHighlight, // Premium look
         color: colors.text,
         paddingHorizontal: 16,
         paddingVertical: 16,
-        borderRadius: 12,
+        borderRadius: 16, // Consistent radius
         borderWidth: 1,
         borderColor: colors.border,
         fontSize: 16,
@@ -235,16 +238,23 @@ const styles = StyleSheet.create({
     signUpButton: {
         backgroundColor: colors.primary,
         paddingVertical: 16,
-        borderRadius: 12,
+        borderRadius: 16, // Consistent radius
         alignItems: 'center',
         marginTop: 32,
+        // Premium shadow
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
+        width: '100%',
     },
     disabledButton: {
         opacity: 0.7,
     },
     signUpButtonText: {
         color: '#ffffff',
-        fontWeight: 'bold',
+        fontWeight: '800', // Consistent weight
         fontSize: 18,
     },
     loginLink: {
@@ -254,10 +264,11 @@ const styles = StyleSheet.create({
     },
     loginText: {
         color: colors.textMuted,
+        fontSize: 14,
     },
     loginTextHighlight: {
         color: colors.primary,
-        fontWeight: '600',
+        fontWeight: '800', // Consistent weight
     },
     successContainer: {
         justifyContent: 'center',

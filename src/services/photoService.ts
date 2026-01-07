@@ -122,8 +122,69 @@ export async function uploadProofPhoto(
     }
 }
 
-// Helper to get a thumbnail URL (if needed in the future)
-export function getProofPhotoThumbnail(url: string): string {
-    // Supabase doesn't have built-in thumbnails, so we use the full URL
-    return url;
+// Upload group cover image to Supabase Storage
+export async function uploadGroupCover(
+    imageUri: string,
+    groupId: string
+): Promise<string> {
+    try {
+        const { base64 } = await compressImage(imageUri);
+        if (!base64) throw new Error('Failed to process image');
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('Not authenticated');
+
+        const filename = `groups/${groupId}_cover_${Date.now()}.jpg`;
+
+        const { data, error } = await supabase.storage
+            .from('proof-photos') // Reusing the same bucket for simplicity
+            .upload(filename, decode(base64), {
+                contentType: 'image/jpeg',
+                upsert: true,
+            });
+
+        if (error) throw error;
+
+        const { data: urlData } = supabase.storage
+            .from('proof-photos')
+            .getPublicUrl(data.path);
+
+        return urlData.publicUrl;
+    } catch (error) {
+        console.error('Group cover upload failed:', error);
+        throw error;
+    }
+}
+
+// Upload user avatar to Supabase Storage
+export async function uploadAvatar(
+    imageUri: string
+): Promise<string> {
+    try {
+        const { base64 } = await compressImage(imageUri);
+        if (!base64) throw new Error('Failed to process image');
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error('Not authenticated');
+
+        const filename = `avatars/${user.id}_${Date.now()}.jpg`;
+
+        const { data, error } = await supabase.storage
+            .from('proof-photos') // Reusing the same bucket
+            .upload(filename, decode(base64), {
+                contentType: 'image/jpeg',
+                upsert: true,
+            });
+
+        if (error) throw error;
+
+        const { data: urlData } = supabase.storage
+            .from('proof-photos')
+            .getPublicUrl(data.path);
+
+        return urlData.publicUrl;
+    } catch (error) {
+        console.error('Avatar upload failed:', error);
+        throw error;
+    }
 }

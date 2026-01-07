@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Social Ledger",
-    "slug": "social-ledger",
+    "name": "Do It Mate!",
+    "slug": "do-it-mate",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,14 +16,14 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.socialledger.app"
+      "bundleIdentifier": "com.doitmate.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0a0a"
       },
-      "package": "com.socialledger.app"
+      "package": "com.doitmate.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"

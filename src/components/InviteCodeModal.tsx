@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
     },
     modal: {
         backgroundColor: colors.surface,
-        borderRadius: 28,
+        borderRadius: 24, // Consistent
         padding: 28,
         alignItems: 'center',
         shadowColor: colors.success,
@@ -206,28 +206,30 @@ const styles = StyleSheet.create({
     iconGlow: {
         position: 'absolute',
         top: -20,
-        width: 120,
-        height: 120,
-        borderRadius: 60,
+        left: '50%',
+        width: 100,
+        height: 100,
+        borderRadius: 50,
         backgroundColor: colors.success,
         opacity: 0.15,
+        transform: [{ translateX: -50 }],
     },
     iconContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
+        width: 72, // Smaller
+        height: 72,
+        borderRadius: 36,
         backgroundColor: `${colors.success}20`,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 20,
     },
     iconText: {
-        fontSize: 42,
+        fontSize: 32, // Smaller
     },
     title: {
         color: colors.text,
-        fontSize: 26,
-        fontWeight: 'bold',
+        fontSize: 24,
+        fontWeight: '800', // Consistent bold
         textAlign: 'center',
         marginBottom: 4,
     },
@@ -240,7 +242,7 @@ const styles = StyleSheet.create({
     codeBox: {
         width: '100%',
         backgroundColor: colors.surfaceHighlight,
-        borderRadius: 16,
+        borderRadius: 20, // Consistent
         padding: 20,
         borderWidth: 2,
         borderColor: colors.primary,
@@ -259,6 +261,7 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         textTransform: 'uppercase',
         letterSpacing: 1,
+        fontWeight: '700',
     },
     codeRow: {
         flexDirection: 'row',
@@ -269,7 +272,7 @@ const styles = StyleSheet.create({
     codeText: {
         color: colors.primary,
         fontSize: 32,
-        fontWeight: 'bold',
+        fontWeight: '800',
         fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
         letterSpacing: 4,
         textAlign: 'center',
@@ -296,14 +299,14 @@ const styles = StyleSheet.create({
     instructions: {
         width: '100%',
         backgroundColor: `${colors.primary}10`,
-        borderRadius: 12,
+        borderRadius: 16, // Consistent
         padding: 16,
         marginBottom: 24,
     },
     instructionTitle: {
         color: colors.text,
         fontSize: 14,
-        fontWeight: '600',
+        fontWeight: '700',
         marginBottom: 8,
     },
     instructionText: {
@@ -314,9 +317,10 @@ const styles = StyleSheet.create({
     doneButton: {
         width: '100%',
         backgroundColor: colors.success,
-        paddingVertical: 16,
-        borderRadius: 14,
+        height: 72, // Increased
+        borderRadius: 24, // Consistent
         alignItems: 'center',
+        justifyContent: 'center', // Added explicitly
         shadowColor: colors.success,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
@@ -325,7 +329,7 @@ const styles = StyleSheet.create({
     },
     doneButtonText: {
         color: '#ffffff',
-        fontWeight: 'bold',
+        fontWeight: '800',
         fontSize: 18,
     },
 });

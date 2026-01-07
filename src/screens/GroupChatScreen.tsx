@@ -12,11 +12,11 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 import { useAuth } from '../hooks/useAuth';
 import { useMessages } from '../hooks/useMessages';
 import { MessageWithProfile } from '../types/database';
 import { colors } from '../theme/colors';
+import { safeHaptics } from '../utils/haptics';
 
 type RootStackParamList = {
     GroupChat: { groupId: string; groupName: string };
@@ -52,20 +52,12 @@ export default function GroupChatScreen({ navigation, route }: Props) {
         }
     }, [messages.length]);
 
-    const safeHaptics = () => {
-        if (Platform.OS !== 'web') {
-            try {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            } catch (e) { }
-        }
-    };
-
     const handleSend = async () => {
         if (!inputText.trim() || sending) return;
 
         const text = inputText.trim();
         setInputText('');
-        safeHaptics();
+        safeHaptics('light');
 
         try {
             await sendMessage(text);
@@ -370,8 +362,8 @@ const styles = StyleSheet.create({
     },
     textInput: {
         flex: 1,
-        backgroundColor: colors.surfaceHighlight,
-        borderRadius: 20,
+        backgroundColor: colors.surfaceHighlight, // Premium
+        borderRadius: 16, // Consistent with other inputs
         paddingHorizontal: 16,
         paddingVertical: 10,
         paddingRight: 16,

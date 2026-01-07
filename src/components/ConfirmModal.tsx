@@ -97,42 +97,44 @@ export default function ConfirmModal({
                     ]}
                 >
                     <View style={styles.modal}>
-                        {/* Glow effect behind icon */}
-                        <View style={[styles.iconGlow, { backgroundColor: getIconBackground() }]} />
-
-                        {/* Icon */}
-                        <View style={[
-                            styles.iconContainer,
-                            confirmStyle === 'danger' ? styles.iconDanger : styles.iconPrimary
-                        ]}>
-                            <Text style={styles.iconText}>
-                                {confirmStyle === 'danger' ? '🚪' : '❓'}
-                            </Text>
+                        {/* Header Icon Wrapper - Popped out */}
+                        <View style={styles.iconWrapper}>
+                            <View style={[styles.iconGlow, { backgroundColor: getIconBackground() }]} />
+                            <View style={[
+                                styles.iconContainer,
+                                confirmStyle === 'danger' ? styles.iconDanger : styles.iconPrimary
+                            ]}>
+                                <Text style={styles.iconText}>
+                                    {confirmStyle === 'danger' ? '🚪' : '❓'}
+                                </Text>
+                            </View>
                         </View>
 
                         {/* Content */}
-                        <Text style={styles.title}>{title}</Text>
-                        <Text style={styles.message}>{message}</Text>
+                        <View style={styles.contentContainer}>
+                            <Text style={styles.title}>{title}</Text>
+                            <Text style={styles.message}>{message}</Text>
 
-                        {/* Buttons */}
-                        <View style={styles.buttonContainer}>
-                            <TouchableOpacity
-                                style={[styles.button, styles.cancelButton]}
-                                onPress={onCancel}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={styles.cancelButtonText}>{cancelText}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[
-                                    styles.button,
-                                    confirmStyle === 'danger' ? styles.dangerButton : styles.primaryButton
-                                ]}
-                                onPress={onConfirm}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={styles.confirmButtonText}>{confirmText}</Text>
-                            </TouchableOpacity>
+                            {/* Buttons */}
+                            <View style={styles.buttonContainer}>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.button,
+                                        confirmStyle === 'danger' ? styles.dangerButton : styles.primaryButton
+                                    ]}
+                                    onPress={onConfirm}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={styles.confirmButtonText}>{confirmText}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.button, styles.cancelButton]}
+                                    onPress={onCancel}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={styles.cancelButtonText}>{cancelText}</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     </View>
                 </Animated.View>
@@ -158,19 +160,26 @@ const styles = StyleSheet.create({
     modal: {
         backgroundColor: colors.surface,
         borderRadius: 24,
-        padding: 28,
         alignItems: 'center',
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 24,
-        elevation: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 20 },
+        shadowOpacity: 0.4,
+        shadowRadius: 40,
+        elevation: 20,
         borderWidth: 1,
         borderColor: colors.border,
+        overflow: 'visible', // Critical for pop-out
+    },
+    iconWrapper: {
+        marginTop: -36, // Pull up by half the icon height
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 100,
+        height: 100,
+        marginBottom: 8,
     },
     iconGlow: {
         position: 'absolute',
-        top: -20,
         width: 100,
         height: 100,
         borderRadius: 50,
@@ -182,41 +191,54 @@ const styles = StyleSheet.create({
         borderRadius: 36,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+        // Shadow for the icon itself to make it pop
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.25,
+        shadowRadius: 10,
+        elevation: 10,
+    },
+    contentContainer: {
+        paddingHorizontal: 32,
+        paddingBottom: 32,
+        alignItems: 'center',
+        width: '100%',
     },
     iconPrimary: {
-        backgroundColor: `${colors.primary}20`,
+        backgroundColor: colors.primary,
     },
     iconDanger: {
-        backgroundColor: `${colors.error}20`,
+        backgroundColor: colors.error,
     },
     iconText: {
-        fontSize: 36,
+        fontSize: 32,
     },
     title: {
         color: colors.text,
-        fontSize: 22,
-        fontWeight: 'bold',
+        fontSize: 24,
+        fontWeight: '800',
         textAlign: 'center',
         marginBottom: 12,
+        letterSpacing: -0.5,
     },
     message: {
         color: colors.textMuted,
-        fontSize: 15,
+        fontSize: 16,
         textAlign: 'center',
-        lineHeight: 22,
-        marginBottom: 28,
+        lineHeight: 24,
+        marginBottom: 32,
     },
     buttonContainer: {
-        flexDirection: 'row',
-        gap: 12,
+        flexDirection: 'column',
+        gap: 16,
         width: '100%',
     },
     button: {
-        flex: 1,
-        paddingVertical: 14,
-        paddingHorizontal: 24,
-        borderRadius: 14,
+        width: '100%',
+        height: 72, // Increased from 64
+        borderRadius: 24, // Increased to match height
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -226,9 +248,9 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
     },
     cancelButtonText: {
-        color: colors.textMuted,
-        fontWeight: '600',
-        fontSize: 16,
+        color: colors.text,
+        fontWeight: '800',
+        fontSize: 18, // Increased from 16
     },
     primaryButton: {
         backgroundColor: colors.primary,
@@ -248,8 +270,8 @@ const styles = StyleSheet.create({
     },
     confirmButtonText: {
         color: '#ffffff',
-        fontWeight: '600',
-        fontSize: 16,
+        fontWeight: '800',
+        fontSize: 18, // Increased from 16
     },
 });
 

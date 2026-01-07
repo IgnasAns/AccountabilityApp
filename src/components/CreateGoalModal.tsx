@@ -11,8 +11,8 @@ import {
     StyleSheet,
     ScrollView,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import { colors } from '../theme/colors';
+import { safeHaptics } from '../utils/haptics';
 
 interface Props {
     visible: boolean;
@@ -64,16 +64,8 @@ export default function CreateGoalModal({
     const [loading, setLoading] = useState(false);
     const [selectedFrequency, setSelectedFrequency] = useState(3); // Default to "Every 3 days"
 
-    const safeHaptics = () => {
-        if (Platform.OS !== 'web') {
-            try {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            } catch (e) { }
-        }
-    };
-
     const handleModeChange = (mode: 'positive' | 'negative') => {
-        safeHaptics();
+        safeHaptics('light');
         setGoalMode(mode);
         // Reset emoji based on mode
         setSelectedEmoji(mode === 'positive' ? '🎯' : '🚭');
@@ -86,7 +78,7 @@ export default function CreateGoalModal({
     };
 
     const handleFrequencySelect = (index: number) => {
-        safeHaptics();
+        safeHaptics('light');
         setSelectedFrequency(index);
         const option = FREQUENCY_OPTIONS[index];
         if (option.days > 0) {
@@ -100,7 +92,7 @@ export default function CreateGoalModal({
 
         try {
             setLoading(true);
-            safeHaptics();
+            safeHaptics('medium');
 
             let finalDays = frequencyDays;
             let finalPerWeek = targetPerWeek;
@@ -267,7 +259,7 @@ export default function CreateGoalModal({
                                                 ),
                                             ]}
                                             onPress={() => {
-                                                safeHaptics();
+                                                safeHaptics('selection');
                                                 setSelectedEmoji(emoji);
                                             }}
                                         >

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
   description text,
   default_penalty_amount numeric NOT NULL DEFAULT 5.00,
   invite_code text UNIQUE DEFAULT encode(extensions.digest(gen_random_uuid()::text, 'sha256'), 'hex'),
+  image_url text,
   created_by uuid REFERENCES public.profiles(id) NOT NULL,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   amount numeric NOT NULL,
   status text CHECK (status IN ('pending', 'paid')) DEFAULT 'pending' NOT NULL,
   description text,
+  proof_photo_url text,
   created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
   settled_at timestamp with time zone
 );
@@ -173,8 +175,8 @@ BEGIN
 END;
 $$;
 
--- Function: log_failure
-CREATE OR REPLACE FUNCTION log_failure(p_group_id uuid, p_description text)
+-- Function: log_failure (Updated with proof_photo_url)
+CREATE OR REPLACE FUNCTION log_failure(p_group_id uuid, p_description text, p_proof_photo_url text DEFAULT NULL)
 RETURNS json
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -199,8 +201,8 @@ BEGIN
 
   -- Find other members to pay
   FOR v_member IN SELECT user_id FROM public.group_members WHERE group_id = p_group_id AND user_id != v_user_id LOOP
-    INSERT INTO public.transactions (group_id, from_user_id, to_user_id, amount, description)
-    VALUES (p_group_id, v_user_id, v_member.user_id, v_penalty, p_description);
+    INSERT INTO public.transactions (group_id, from_user_id, to_user_id, amount, description, proof_photo_url)
+    VALUES (p_group_id, v_user_id, v_member.user_id, v_penalty, p_description, p_proof_photo_url);
     
     -- Update recipient balance
     UPDATE public.group_members
@@ -299,6 +301,35 @@ DROP TRIGGER IF EXISTS on_auth_user_created_confirm ON auth.users;
 CREATE TRIGGER on_auth_user_created_confirm
   BEFORE INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.auto_confirm_email();
+
+-- 8. STORAGE SETUP
+-- ---------------------------------------------------------------------------
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('proof-photos', 'proof-photos', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Anyone can view proof photos" ON storage.objects;
+CREATE POLICY "Anyone can view proof photos"
+  ON storage.objects FOR SELECT
+  USING ( bucket_id = 'proof-photos' );
+
+DROP POLICY IF EXISTS "Authenticated users can upload photos" ON storage.objects;
+CREATE POLICY "Authenticated users can upload photos"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK ( bucket_id = 'proof-photos' );
+
+DROP POLICY IF EXISTS "Users can update their own photos" ON storage.objects;
+CREATE POLICY "Users can update their own photos"
+  ON storage.objects FOR UPDATE
+  TO authenticated
+  USING ( bucket_id = 'proof-photos' );
+
+DROP POLICY IF EXISTS "Users can delete their own photos" ON storage.objects;
+CREATE POLICY "Users can delete their own photos"
+  ON storage.objects FOR DELETE
+  TO authenticated
+  USING ( bucket_id = 'proof-photos' );
 
 -- ===========================================================================
 -- SETUP COMPLETE! You can now use the app.

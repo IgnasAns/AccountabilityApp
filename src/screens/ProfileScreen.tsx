@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import {
     View,
@@ -9,6 +8,7 @@ import {
     ActivityIndicator,
     StyleSheet,
     Platform,
+    Image,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../hooks/useAuth';
@@ -16,6 +16,7 @@ import { colors } from '../theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyledAlert } from '../components/StyledAlert';
 import ConfirmModal from '../components/ConfirmModal';
+import { pickImage, uploadAvatar } from '../services/photoService';
 
 // Declare window for web platform
 declare const window: { alert: (message: string) => void } | undefined;
@@ -48,10 +49,32 @@ export default function ProfileScreen({ navigation }: Props) {
             }
         } catch (error: any) {
             if (Platform.OS === 'web') {
-                window?.alert(`Error: ${error.message}`);
+                window?.alert(`Error: ${error.message} `);
             } else {
                 StyledAlert.alert('Error', error.message);
             }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAvatarPress = async () => {
+        if (loading) return;
+        if (profile?.id === 'guest_user_id') {
+            StyledAlert.alert('Guest Mode', 'You cannot update the guest profile.');
+            return;
+        }
+
+        try {
+            const uri = await pickImage();
+            if (uri) {
+                setLoading(true);
+                const publicUrl = await uploadAvatar(uri);
+                await updateProfile({ avatar_url: publicUrl });
+                StyledAlert.alert('Success', 'Profile picture updated');
+            }
+        } catch (error: any) {
+            StyledAlert.alert('Error', error.message || 'Failed to update profile picture');
         } finally {
             setLoading(false);
         }
@@ -74,11 +97,28 @@ export default function ProfileScreen({ navigation }: Props) {
         <ScrollView style={[styles.container, { paddingTop: insets.top }]} contentContainerStyle={styles.contentContainer}>
             {/* Avatar */}
             <View style={styles.avatarContainer}>
-                <View style={styles.avatarCircle}>
-                    <Text style={styles.avatarText}>
-                        {profile?.name?.charAt(0).toUpperCase() || '?'}
-                    </Text>
-                </View>
+                <TouchableOpacity
+                    style={styles.avatarCircle}
+                    onPress={handleAvatarPress}
+                    disabled={loading}
+                    activeOpacity={0.8}
+                >
+                    {profile?.avatar_url ? (
+                        <Image
+                            source={{ uri: profile.avatar_url }}
+                            style={styles.avatarImage}
+                        />
+                    ) : (
+                        <Text style={styles.avatarText}>
+                            {profile?.name?.charAt(0).toUpperCase() || '?'}
+                        </Text>
+                    )}
+
+                    {/* Camera Icon Overlay */}
+                    <View style={styles.cameraIconContainer}>
+                        <Text style={styles.cameraIcon}>📷</Text>
+                    </View>
+                </TouchableOpacity>
                 <Text style={styles.profileName}>
                     {profile?.name || 'User'}
                 </Text>
@@ -163,92 +203,138 @@ const styles = StyleSheet.create({
         backgroundColor: colors.background,
     },
     contentContainer: {
-        padding: 24,
+        paddingHorizontal: 24,
+        paddingTop: 30,
+        paddingBottom: 40,
     },
     avatarContainer: {
         alignItems: 'center',
-        marginBottom: 32,
+        marginBottom: 40,
     },
     avatarCircle: {
-        width: 96,
-        height: 96,
-        backgroundColor: colors.primary,
-        borderRadius: 48,
+        width: 100,
+        height: 100,
+        backgroundColor: colors.surface,
+        borderRadius: 50,
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: 16,
+        borderWidth: 2,
+        borderColor: colors.primary,
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.2,
+        shadowRadius: 15,
+        elevation: 8,
+    },
+    avatarImage: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 50,
+    },
+    cameraIconContainer: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        backgroundColor: colors.surface,
+        borderRadius: 12,
+        padding: 6,
+        borderWidth: 1,
+        borderColor: colors.border,
+        shadowColor: '#000',
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
+    },
+    cameraIcon: {
+        fontSize: 14,
     },
     avatarText: {
-        color: '#ffffff',
-        fontSize: 36,
-        fontWeight: 'bold',
+        color: colors.primary,
+        fontSize: 40,
+        fontWeight: '800',
     },
     profileName: {
         color: colors.text,
-        fontSize: 20,
-        fontWeight: 'bold',
+        fontSize: 28,
+        fontWeight: '800',
+        letterSpacing: -0.5,
     },
     sectionCard: {
         backgroundColor: colors.surface,
-        borderRadius: 16,
-        padding: 20,
+        borderRadius: 24,
+        padding: 24,
         marginBottom: 24,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     sectionTitle: {
         color: colors.text,
-        fontWeight: '600',
-        marginBottom: 16,
+        fontSize: 18,
+        fontWeight: '800',
+        marginBottom: 20,
     },
     dangerTitle: {
         color: colors.error,
     },
     inputGroup: {
-        marginBottom: 16,
+        marginBottom: 20,
     },
     label: {
         color: colors.textMuted,
-        fontSize: 14,
+        fontSize: 13,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
         marginBottom: 8,
     },
     input: {
         backgroundColor: colors.surfaceHighlight,
         color: colors.text,
         paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderRadius: 12,
+        paddingVertical: 14,
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: colors.border,
+        fontSize: 16,
     },
     helperText: {
         color: colors.textMuted,
-        opacity: 0.7,
         fontSize: 12,
         marginTop: 8,
+        lineHeight: 18,
     },
     saveButton: {
         backgroundColor: colors.primary,
-        paddingVertical: 12,
-        borderRadius: 12,
+        paddingVertical: 16,
+        borderRadius: 16,
         alignItems: 'center',
-        marginTop: 8,
+        marginTop: 10,
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
     },
     disabledButton: {
-        opacity: 0.7,
+        opacity: 0.6,
     },
     saveButtonText: {
         color: '#ffffff',
-        fontWeight: '600',
+        fontWeight: '800',
+        fontSize: 16,
     },
     signOutButton: {
-        backgroundColor: 'rgba(239, 68, 68, 0.1)', // colors.error with opacity
+        backgroundColor: colors.error + '10',
         borderWidth: 1,
-        borderColor: 'rgba(239, 68, 68, 0.3)',
-        paddingVertical: 12,
-        borderRadius: 12,
+        borderColor: colors.error + '30',
+        paddingVertical: 16,
+        borderRadius: 16,
         alignItems: 'center',
     },
     signOutButtonText: {
         color: colors.error,
-        fontWeight: '600',
+        fontWeight: '800',
+        fontSize: 16,
     },
 });

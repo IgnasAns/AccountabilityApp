@@ -8,8 +8,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '../types/database';
 
+// ------------------------------------------------------------------
+// SUPABASE CONFIGURATION
+// These values can be overridden via environment variables.
+// For production, set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY
+// in your .env file.
+// ------------------------------------------------------------------
+
 // Supabase Project URL (public)
-const supabaseUrl = 'https://bftyuzhigydeuabzkfvs.supabase.co';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://bftyuzhigydeuabzkfvs.supabase.co';
 
 // ------------------------------------------------------------------
 // SUPABASE ANON KEY - SECURITY NOTE:
@@ -18,12 +25,10 @@ const supabaseUrl = 'https://bftyuzhigydeuabzkfvs.supabase.co';
 // Security is enforced via Row Level Security (RLS) policies.
 // See: https://supabase.com/docs/guides/database/postgres/row-level-security
 // ------------------------------------------------------------------
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdHl1emhpZ3lkZXVhYnprZnZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MzU3OTQsImV4cCI6MjA4MzAxMTc5NH0.-y6wjwq2QeXfpLzBj_ejEUkFVV_BBdjBRvhLba6iOT4';
-
-const supabaseAnonKey = SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdHl1emhpZ3lkZXVhYnprZnZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MzU3OTQsImV4cCI6MjA4MzAxMTc5NH0.-y6wjwq2QeXfpLzBj_ejEUkFVV_BBdjBRvhLba6iOT4';
 
 if (!supabaseAnonKey) {
-    console.warn('Supabase Anon Key is missing.');
+    console.warn('Supabase Anon Key is missing. Set EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file.');
 }
 
 // Default to a placeholder if key is missing to prevent crash

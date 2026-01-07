@@ -17,6 +17,7 @@
     "@react-navigation/native-stack": "^6.9.26",
     "@supabase/supabase-js": "^2.39.8",
     "base64-arraybuffer": "^1.0.2",
+    "date-fns": "^4.1.0",
     "expo": "~51.0.28",
     "expo-blur": "~13.0.3",
     "expo-clipboard": "~6.0.3",

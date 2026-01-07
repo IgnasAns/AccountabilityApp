@@ -11,12 +11,12 @@ import {
     StyleSheet,
     ScrollView,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import { logFailure } from '../services/supabase';
 import { uploadProofPhoto } from '../services/photoService';
 import { StyledAlert } from './StyledAlert';
 import PhotoProofPicker from './PhotoProofPicker';
 import { colors } from '../theme/colors';
+import { safeHaptics } from '../utils/haptics';
 
 interface Props {
     visible: boolean;
@@ -44,21 +44,7 @@ export default function LogFailureModal({
 
     const totalDebt = penaltyAmount * memberCount;
 
-    // Safe haptics helper (no-op on web)
-    const safeHaptics = (type: 'success' | 'warning' | 'error') => {
-        if (Platform.OS === 'web') return;
-        try {
-            if (type === 'success') {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } else if (type === 'warning') {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            } else {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            }
-        } catch (e) {
-            // Ignore haptics errors
-        }
-    };
+    // Using centralized haptics utility from utils/haptics.ts
 
     const handleConfirm = async () => {
         try {
@@ -267,7 +253,7 @@ const styles = StyleSheet.create({
     },
     modalContent: {
         backgroundColor: colors.surface,
-        borderTopLeftRadius: 24,
+        borderTopLeftRadius: 24, // Consistent
         borderTopRightRadius: 24,
         maxHeight: '90%',
     },
@@ -293,13 +279,13 @@ const styles = StyleSheet.create({
         marginBottom: 24,
     },
     headerEmoji: {
-        fontSize: 64,
+        fontSize: 48, // Slightly smaller
         marginBottom: 16,
     },
     title: {
         color: colors.text,
         fontSize: 24,
-        fontWeight: 'bold',
+        fontWeight: '800', // Consistent bold
         textAlign: 'center',
     },
     subtitle: {
@@ -309,7 +295,7 @@ const styles = StyleSheet.create({
     },
     debtSummaryCard: {
         backgroundColor: 'rgba(239, 68, 68, 0.1)', // error with opacity
-        borderRadius: 16,
+        borderRadius: 20, // Consistent
         padding: 20,
         marginBottom: 24,
         borderWidth: 1,
@@ -319,7 +305,7 @@ const styles = StyleSheet.create({
         color: colors.error,
         textAlign: 'center',
         marginBottom: 16,
-        fontWeight: '500',
+        fontWeight: '700',
     },
     benefitRow: {
         flexDirection: 'row',
@@ -365,7 +351,7 @@ const styles = StyleSheet.create({
         color: colors.text,
         paddingHorizontal: 16,
         paddingVertical: 12,
-        borderRadius: 12,
+        borderRadius: 16, // Consistent
         borderWidth: 1,
         borderColor: colors.border,
         textAlignVertical: 'top',
@@ -373,34 +359,43 @@ const styles = StyleSheet.create({
     },
     buttonRow: {
         flexDirection: 'row',
-        gap: 12,
+        gap: 16, // Increased gap
     },
     cancelButton: {
         flex: 1,
         backgroundColor: colors.surfaceHighlight,
         borderWidth: 1,
         borderColor: colors.border,
-        paddingVertical: 16,
-        borderRadius: 12,
+        height: 72, // Increased
+        borderRadius: 24, // Consistent
         alignItems: 'center',
+        justifyContent: 'center',
     },
     cancelButtonText: {
         color: colors.text,
-        fontWeight: '600',
+        fontWeight: '800',
+        fontSize: 18,
     },
     confirmButton: {
         flex: 1,
         backgroundColor: colors.error,
-        paddingVertical: 16,
-        borderRadius: 12,
+        height: 72, // Increased
+        borderRadius: 24, // Consistent
         alignItems: 'center',
+        justifyContent: 'center',
+        shadowColor: colors.error,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
     },
     disabledButton: {
         opacity: 0.6,
     },
     confirmButtonText: {
         color: '#ffffff',
-        fontWeight: 'bold',
+        fontWeight: '800',
+        fontSize: 18,
     },
     loadingContainer: {
         flexDirection: 'row',

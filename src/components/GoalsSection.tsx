@@ -20,9 +20,10 @@ interface Props {
     groupName: string;
     defaultPenalty: number;
     groupMembers?: { id: string; name: string }[];
+    onMemberPress: (userId: string) => void;
 }
 
-export default function GoalsSection({ groupId, groupName, defaultPenalty, groupMembers = [] }: Props) {
+export default function GoalsSection({ groupId, groupName, defaultPenalty, groupMembers = [], onMemberPress }: Props) {
     const {
         goals,
         loading,
@@ -188,6 +189,7 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
                 }}
                 goal={selectedGoal}
                 groupMembers={groupMembers}
+                onMemberPress={onMemberPress}
             />
 
             {/* Complete Goal Modal (with mandatory photo) */}

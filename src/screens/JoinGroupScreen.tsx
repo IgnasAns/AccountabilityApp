@@ -16,6 +16,7 @@ import { useGroups } from '../hooks/useGroups';
 import { useAuth } from '../hooks/useAuth';
 import { StyledAlert } from '../components/StyledAlert';
 import { colors } from '../theme/colors';
+import { sanitizeInviteCode } from '../utils/sanitize';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -34,7 +35,8 @@ export default function JoinGroupScreen({ navigation }: Props) {
             return;
         }
 
-        const code = inviteCode.trim().toUpperCase();
+        // Sanitize the invite code
+        const code = sanitizeInviteCode(inviteCode);
         if (!code) {
             StyledAlert.alert('Error', 'Please enter an invite code');
             return;
@@ -194,11 +196,14 @@ const styles = StyleSheet.create({
     },
     label: {
         color: colors.textMuted,
-        fontSize: 14,
+        fontSize: 13,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
         marginBottom: 16,
     },
     codeInput: {
-        backgroundColor: colors.surface,
+        backgroundColor: colors.surfaceHighlight, // Premium look
         color: colors.text,
         textAlign: 'center',
         fontSize: 30,
@@ -220,25 +225,27 @@ const styles = StyleSheet.create({
     },
     explanationCard: {
         backgroundColor: colors.surface,
-        borderRadius: 16,
-        padding: 20,
+        borderRadius: 24, // Consistent card radius
+        padding: 24,
         marginBottom: 32,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     explanationRow: {
         flexDirection: 'row',
         alignItems: 'flex-start',
-        marginBottom: 16,
+        marginBottom: 20,
     },
     stepEmoji: {
         fontSize: 24,
-        marginRight: 12,
+        marginRight: 16,
     },
     stepTextContainer: {
         flex: 1,
     },
     stepTitle: {
         color: colors.text,
-        fontWeight: '500',
+        fontWeight: '700',
         fontSize: 16,
     },
     stepDescription: {
@@ -266,15 +273,21 @@ const styles = StyleSheet.create({
     joinButton: {
         backgroundColor: colors.primary,
         paddingVertical: 16,
-        borderRadius: 12,
+        borderRadius: 16, // Consistent radius
         alignItems: 'center',
+        // Premium shadow
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 4,
     },
     disabledButton: {
         opacity: 0.6,
     },
     joinButtonText: {
         color: '#ffffff',
-        fontWeight: 'bold',
+        fontWeight: '800', // Consistent weight
         fontSize: 18,
     },
 });

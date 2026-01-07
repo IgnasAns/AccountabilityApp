@@ -5,11 +5,10 @@ import {
     TouchableOpacity,
     StyleSheet,
     ActivityIndicator,
-    Platform,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import { GoalWithCompletions, GoalStatus } from '../types/database';
 import { colors } from '../theme/colors';
+import { safeHaptics } from '../utils/haptics';
 
 interface Props {
     goal: GoalWithCompletions;
@@ -19,25 +18,15 @@ interface Props {
     onViewCalendar: (goalId: string) => void;
 }
 
+import ConfirmModal from './ConfirmModal';
+
 export default function GoalCard({ goal, status, onComplete, onNegativeLog, onViewCalendar }: Props) {
     const [completing, setCompleting] = useState(false);
+    const [showConfirmSlipUp, setShowConfirmSlipUp] = useState(false);
 
     const isNegative = goal.goal_mode === 'negative';
 
-    const safeHaptics = (style: 'light' | 'medium' | 'heavy' = 'medium') => {
-        if (Platform.OS !== 'web') {
-            try {
-                const feedbackStyle = style === 'light'
-                    ? Haptics.ImpactFeedbackStyle.Light
-                    : style === 'heavy'
-                        ? Haptics.ImpactFeedbackStyle.Heavy
-                        : Haptics.ImpactFeedbackStyle.Medium;
-                Haptics.impactAsync(feedbackStyle);
-            } catch (e) { }
-        }
-    };
-
-    // Calculate today's count for negative goals
+    // Using centralized haptics utility from utils/haptics.ts
     const todayCount = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
         return goal.completions
@@ -69,11 +58,18 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
         }
     };
 
-    const handleNegativeLog = async () => {
+    const handleNegativePress = () => {
+        safeHaptics('light');
+        setShowConfirmSlipUp(true);
+    };
+
+    const handleConfirmSlipUp = async () => {
+        setShowConfirmSlipUp(false);
         if (!onNegativeLog) return;
+
         try {
             setCompleting(true);
-            safeHaptics('heavy'); // Heavier feedback for negative actions
+            safeHaptics('heavy');
             await onNegativeLog(goal.id, 1);
         } catch (error) {
             console.error('Failed to log occurrence:', error);
@@ -82,10 +78,9 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
         }
     };
 
-    // Determine status color and text - different for positive vs negative
+
     const getStatusInfo = () => {
         if (isNegative) {
-            // For negative goals, show today's slip-up count
             if (todayCount === 0) {
                 return {
                     color: colors.success,
@@ -104,7 +99,6 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                 };
             }
         } else {
-            // Positive goal status
             if (status.is_overdue) {
                 return {
                     color: colors.error,
@@ -135,7 +129,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
 
     const statusInfo = getStatusInfo();
 
-    // Format last activity
+
     const formatLastActivity = () => {
         if (isNegative) {
             if (goal.completions.length === 0) return 'No slip-ups yet!';
@@ -223,7 +217,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
             {isNegative ? (
                 <TouchableOpacity
                     style={styles.negativeButton}
-                    onPress={handleNegativeLog}
+                    onPress={handleNegativePress}
                     disabled={completing}
                     activeOpacity={0.7}
                 >
@@ -256,6 +250,16 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                     )}
                 </TouchableOpacity>
             )}
+
+            <ConfirmModal
+                visible={showConfirmSlipUp}
+                title="Log Slip-Up?"
+                message={`Are you sure you want to log a slip-up for "${goal.name}"?\n\nThis will add €${goal.penalty_amount.toFixed(2)} to your penalty balance.`}
+                confirmText="Yes, I slipped up"
+                onConfirm={handleConfirmSlipUp}
+                onCancel={() => setShowConfirmSlipUp(false)}
+                confirmStyle="danger"
+            />
         </View>
     );
 }

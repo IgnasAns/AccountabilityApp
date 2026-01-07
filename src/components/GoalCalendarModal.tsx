@@ -29,9 +29,10 @@ interface Props {
     onClose: () => void;
     goal: GoalWithCompletions | null;
     groupMembers?: { id: string; name: string }[];
+    onMemberPress: (userId: string) => void;
 }
 
-export default function GoalCalendarModal({ visible, onClose, goal, groupMembers = [] }: Props) {
+export default function GoalCalendarModal({ visible, onClose, goal, groupMembers = [], onMemberPress }: Props) {
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
     const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'calendar' | 'stats'>('calendar');
@@ -267,9 +268,11 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
                                                 <Text style={styles.leaderboardRank}>
                                                     {index === 0 ? '🏆' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`}
                                                 </Text>
-                                                <Text style={styles.leaderboardName} numberOfLines={1}>
-                                                    {perf.user_name}
-                                                </Text>
+                                                <TouchableOpacity style={{ flex: 1 }} onPress={() => onMemberPress(perf.user_id)}>
+                                                    <Text style={styles.leaderboardName} numberOfLines={1}>
+                                                        {perf.user_name}
+                                                    </Text>
+                                                </TouchableOpacity>
                                                 <View style={[
                                                     styles.percentageBadge,
                                                     {
@@ -404,6 +407,9 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
                                                             </View>
                                                         )}
                                                         <View style={styles.completionInfo}>
+                                                            <TouchableOpacity onPress={() => onMemberPress(completion.user_id)}>
+                                                                <Text style={styles.completionName}>{groupMembers.find(m => m.id === completion.user_id)?.name || 'Unknown'}</Text>
+                                                            </TouchableOpacity>
                                                             <Text style={styles.completionTime}>
                                                                 {formatTime(completion.completed_at)}
                                                             </Text>
@@ -449,7 +455,9 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
                                                 {index === 0 ? '🏆' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
                                             </Text>
                                             <View style={styles.summaryInfo}>
-                                                <Text style={styles.summaryName}>{perf.user_name}</Text>
+                                                <TouchableOpacity onPress={() => onMemberPress(perf.user_id)}>
+                                                    <Text style={styles.summaryName}>{perf.user_name}</Text>
+                                                </TouchableOpacity>
                                                 <Text style={styles.summaryStats}>
                                                     {isNegative
                                                         ? `${perf.completions_this_week} this week • ${perf.total_count} total`
@@ -746,6 +754,12 @@ const styles = StyleSheet.create({
     },
     completionInfo: {
         flex: 1,
+    },
+    completionName: {
+        fontWeight: '700',
+        color: colors.text,
+        fontSize: 13,
+        marginBottom: 2,
     },
     completionTime: {
         color: colors.text,

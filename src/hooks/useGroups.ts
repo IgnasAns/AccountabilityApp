@@ -45,7 +45,14 @@ export function useGroups() {
                     .select(`
               group_id,
               current_balance,
-              groups (*)
+              groups (
+                  *,
+                  group_members (
+                      profiles (
+                          avatar_url
+                      )
+                  )
+              )
             `)
                     .eq('user_id', user.id);
 
@@ -54,13 +61,22 @@ export function useGroups() {
                 }
 
                 // Safe casting for the joined data
-                const memberData = data as unknown as (GroupMember & { groups: Group })[];
+                const memberData = data as unknown as (GroupMember & { groups: Group & { group_members: { profiles: { avatar_url: string } }[] } })[];
 
                 const groupsData = memberData?.map((m) => m.groups).filter(Boolean) || [];
-                const balances = memberData?.map((m) => ({
-                    group: m.groups,
-                    balance: m.current_balance,
-                })).filter((b) => b.group) || [];
+                const balances = memberData?.map((m) => {
+                    const rawGroup = m.groups;
+                    // Extract avatars (max 3)
+                    const memberAvatars = rawGroup.group_members
+                        ?.map((gm: any) => gm.profiles?.avatar_url)
+                        .filter((url: any) => typeof url === 'string') || [];
+
+                    return {
+                        group: rawGroup,
+                        balance: m.current_balance,
+                        memberAvatars
+                    };
+                }).filter((b) => b.group) || [];
 
 
                 // Fetch net balance
@@ -103,7 +119,7 @@ export function useGroups() {
         fetchGroups();
     }, [fetchGroups]);
 
-    async function createGroup(name: string, description?: string, penaltyAmount?: number) {
+    async function createGroup(name: string, description?: string, penaltyAmount?: number, imageUrl?: string) {
         if (!user) throw new Error('Not authenticated');
 
         const { data: group, error: groupError } = await supabase
@@ -113,6 +129,7 @@ export function useGroups() {
                 description,
                 default_penalty_amount: penaltyAmount || 1.0,
                 created_by: user.id,
+                image_url: imageUrl || null,
             })
             .select()
             .single();
@@ -220,6 +237,18 @@ export function useGroups() {
         await fetchGroups();
     }
 
+    async function updateGroup(groupId: string, updates: Partial<Pick<Group, 'name' | 'description' | 'default_penalty_amount' | 'image_url'>>) {
+        if (!user) throw new Error('Not authenticated');
+
+        const { error } = await supabase
+            .from('groups')
+            .update(updates)
+            .eq('id', groupId);
+
+        if (error) throw error;
+        await fetchGroups();
+    }
+
     return {
         groups,
         groupBalances,
@@ -227,6 +256,7 @@ export function useGroups() {
         loading,
         error,
         createGroup,
+        updateGroup,
         joinGroup,
         leaveGroup,
         deleteGroup,

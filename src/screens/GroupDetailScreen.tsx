@@ -9,12 +9,16 @@ import {
     Share,
     Platform,
     StyleSheet,
+    Image,
+    LayoutAnimation,
+    UIManager,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
+import { colors } from '../theme/colors';
+import { safeHaptics } from '../utils/haptics';
 import { useAuth } from '../hooks/useAuth';
 import { useGroupDetail, useGroups } from '../hooks/useGroups';
 import { useTransactions } from '../hooks/useTransactions';
@@ -22,8 +26,18 @@ import LogFailureModal from '../components/LogFailureModal';
 import ConfirmModal from '../components/ConfirmModal';
 import ProofPhotoViewer from '../components/ProofPhotoViewer';
 import GoalsSection from '../components/GoalsSection';
+import LeaderboardSection from '../components/LeaderboardSection';
 import { StyledAlert } from '../components/StyledAlert';
-import { colors } from '../theme/colors';
+import { useGoals } from '../hooks/useGoals';
+import MemberDetailModal from '../components/MemberDetailModal';
+import { GroupMemberWithProfile } from '../types/database';
+
+// Enable layout animation for Android
+if (Platform.OS === 'android') {
+    if (UIManager.setLayoutAnimationEnabledExperimental) {
+        UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+}
 
 type RootStackParamList = {
     GroupDetail: { groupId: string };
@@ -31,12 +45,14 @@ type RootStackParamList = {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GroupDetail'>;
 
+type TabOption = 'dashboard' | 'members' | 'settings';
+
 export default function GroupDetailScreen({ navigation, route }: Props) {
     const { groupId } = route.params;
     const { user } = useAuth();
     const insets = useSafeAreaInsets();
     const { group, members, loading: groupLoading, refetch: refetchGroup } = useGroupDetail(groupId);
-    const { deleteGroup, leaveGroup } = useGroups();
+    const { deleteGroup, leaveGroup, updateGroup } = useGroups();
     const {
         pendingDebts,
         pendingCredits,
@@ -44,7 +60,9 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         settleDebt,
         refetch: refetchTx,
     } = useTransactions(groupId);
+    const { goals } = useGoals(groupId);
 
+    const [activeTab, setActiveTab] = useState<TabOption>('dashboard');
     const [showFailureModal, setShowFailureModal] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [settlingId, setSettlingId] = useState<string | null>(null);
@@ -52,7 +70,26 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     const [showLeaveModal, setShowLeaveModal] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
 
+    const [selectedMember, setSelectedMember] = useState<GroupMemberWithProfile | null>(null);
+    const [showMemberModal, setShowMemberModal] = useState(false);
+
+    const handleMemberPress = useCallback((member: GroupMemberWithProfile) => {
+        setSelectedMember(member);
+        setShowMemberModal(true);
+    }, []);
+
+    const handleMemberIdPress = useCallback((userId: string) => {
+        const member = members.find(m => m.user_id === userId);
+        if (member) {
+            handleMemberPress(member);
+        }
+    }, [members, handleMemberPress]);
+
     const isCreator = group?.created_by === user?.id;
+
+    React.useLayoutEffect(() => {
+        navigation.setOptions({ headerShown: false });
+    }, [navigation]);
 
     useFocusEffect(
         useCallback(() => {
@@ -67,26 +104,16 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         setRefreshing(false);
     };
 
-    // Safe haptics helper (no-op on web)
-    const safeHaptics = (type: 'success' | 'warning' | 'error' | 'impact') => {
-        if (Platform.OS === 'web') return;
-        try {
-            if (type === 'success') {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } else if (type === 'warning') {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            } else if (type === 'error') {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            } else {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            }
-        } catch (e) {
-            // Ignore haptics errors
-        }
+    // Using centralized haptics utility from utils/haptics.ts
+
+    const handleTabChange = (tab: TabOption) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setActiveTab(tab);
+        safeHaptics('heavy');
     };
 
     const handleLogFailure = () => {
-        safeHaptics('impact');
+        safeHaptics('heavy');
         setShowFailureModal(true);
     };
 
@@ -100,7 +127,6 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
             setSettlingId(transactionId);
             await settleDebt(transactionId);
             safeHaptics('success');
-            // Immediately refresh data
             await Promise.all([refetchGroup(), refetchTx()]);
             StyledAlert.alert('Settled!', 'The debt has been marked as paid.');
         } catch (error: any) {
@@ -114,13 +140,12 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         if (!group) return;
         try {
             await Share.share({
-                message: `Join my accountability group "${group.name}" on Social Ledger!\n\nInvite code: ${group.invite_code}`,
+                message: `Join my accountability group "${group.name}" on Accountability App! Code: ${group.invite_code}`,
             });
         } catch (error) {
             console.error('Error sharing:', error);
         }
     };
-
 
     const handleDeleteGroup = async () => {
         try {
@@ -128,13 +153,8 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
             await deleteGroup(groupId);
             safeHaptics('success');
             setShowDeleteModal(false);
-            // Reset navigation to go back to main screen
-            navigation.reset({
-                index: 0,
-                routes: [{ name: 'MainTabs' as any }],
-            });
+            navigation.reset({ index: 0, routes: [{ name: 'MainTabs' as any }] });
         } catch (error: any) {
-            console.error('Delete group error:', error);
             StyledAlert.alert('Error', error.message || 'Failed to delete group');
             setIsDeleting(false);
         }
@@ -146,21 +166,14 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
             await leaveGroup(groupId);
             safeHaptics('success');
             setShowLeaveModal(false);
-            navigation.reset({
-                index: 0,
-                routes: [{ name: 'MainTabs' as any }],
-            });
+            navigation.reset({ index: 0, routes: [{ name: 'MainTabs' as any }] });
         } catch (error: any) {
-            console.error('Leave group error:', error);
             StyledAlert.alert('Error', error.message || 'Failed to leave group');
             setIsDeleting(false);
         }
     };
 
-    const formatBalance = (balance: number) => {
-        return `€${Math.abs(balance).toFixed(2)}`;
-    };
-
+    const formatBalance = (balance: number) => `€${Math.abs(balance).toFixed(2)}`;
     const getBalanceColor = (balance: number) => {
         if (balance > 0) return colors.success;
         if (balance < 0) return colors.error;
@@ -183,298 +196,269 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         );
     }
 
-    // Get current user's member data
     const currentMember = members.find((m) => m.user_id === user?.id);
     const otherMembers = members.filter((m) => m.user_id !== user?.id);
 
     return (
         <View style={styles.container}>
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={refreshing}
-                        onRefresh={onRefresh}
-                        tintColor={colors.primary}
-                    />
-                }
-            >
-                {/* Group Header */}
-                <View style={styles.header}>
-                    <View style={styles.titleRow}>
-                        <Text style={styles.groupName}>
-                            {group.name}
-                        </Text>
-                        <View style={styles.headerButtons}>
-                            <TouchableOpacity
-                                onPress={() => navigation.navigate('GroupChat' as any, {
-                                    groupId: groupId,
-                                    groupName: group.name
-                                })}
-                                style={styles.chatButton}
-                            >
-                                <Text style={styles.chatButtonText}>💬</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                onPress={handleShareInvite}
-                                style={styles.inviteButton}
-                            >
-                                <Text style={styles.inviteButtonText}>📤 Share</Text>
-                            </TouchableOpacity>
-                        </View>
+            <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+                {/* Top Nav Row */}
+                <View style={styles.topNav}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+                        <Text style={styles.backIcon}>←</Text>
+                    </TouchableOpacity>
+                    <View style={styles.headerTitleContainer}>
+                        <Text style={styles.headerTitle} numberOfLines={1}>{group.name}</Text>
                     </View>
-                    <Text style={styles.penaltyText}>
-                        💰 Penalty: €{group.default_penalty_amount.toFixed(2)} per failure
-                    </Text>
-                    <TouchableOpacity
-                        style={styles.codeContainer}
-                        onPress={async () => {
-                            try {
-                                await Clipboard.setStringAsync(group.invite_code);
-                                safeHaptics('success');
-                                StyledAlert.alert('Copied!', `Invite code "${group.invite_code}" copied to clipboard`);
-                            } catch (e) {
-                                // Fallback - show code in alert
-                                StyledAlert.alert('Invite Code', group.invite_code);
-                            }
-                        }}
-                        activeOpacity={0.7}
-                    >
-                        <Text style={styles.codeLabel}>🔑 Invite Code</Text>
-                        <View style={styles.codeRow}>
-                            <Text style={styles.codeValue}>
-                                {group.invite_code.length > 12
-                                    ? group.invite_code.substring(0, 12) + '...'
-                                    : group.invite_code}
-                            </Text>
-                            <Text style={styles.copyHint}>tap to copy</Text>
-                        </View>
+                    <TouchableOpacity onPress={handleShareInvite} style={styles.shareButton}>
+                        <Text style={styles.shareIcon}>📤</Text>
                     </TouchableOpacity>
                 </View>
 
-                {/* Your Balance in Group */}
-                <View style={styles.myBalanceCard}>
-                    <Text style={styles.balanceLabel}>Your balance in this group</Text>
-                    <Text
-                        style={[
-                            styles.balanceAmount,
-                            { color: getBalanceColor(currentMember?.current_balance || 0) }
-                        ]}
+                {/* Tabs */}
+                <View style={styles.tabsContainer}>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'dashboard' && styles.activeTab]}
+                        onPress={() => handleTabChange('dashboard')}
                     >
-                        {(currentMember?.current_balance || 0) >= 0 ? '+' : ''}
-                        {formatBalance(currentMember?.current_balance || 0)}
-                    </Text>
-                    <Text style={styles.failureCount}>
-                        Failures logged: {currentMember?.failure_count || 0}
-                    </Text>
+                        <Text style={[styles.tabText, activeTab === 'dashboard' && styles.activeTabText]}>Dashboard</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'members' && styles.activeTab]}
+                        onPress={() => handleTabChange('members')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'members' && styles.activeTabText]}>Balances</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
+                        onPress={() => handleTabChange('settings')}
+                    >
+                        <Text style={[styles.tabText, activeTab === 'settings' && styles.activeTabText]}>Settings</Text>
+                    </TouchableOpacity>
                 </View>
-
-                {/* Shame Leaderboard */}
-                <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>
-                        🏆 Shame Leaderboard
-                    </Text>
-                    {members.length === 0 ? (
-                        <Text style={styles.emptyText}>No members yet</Text>
-                    ) : (
-                        members.map((member, index) => {
-                            const isCurrentUser = member.user_id === user?.id;
-                            return (
-                                <View
-                                    key={member.id}
-                                    style={[
-                                        styles.memberRow,
-                                        isCurrentUser && styles.currentUserRow
-                                    ]}
-                                >
-                                    <Text style={styles.rankEmoji}>
-                                        {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`}
-                                    </Text>
-                                    <View style={styles.memberInfo}>
-                                        <Text style={[
-                                            styles.memberName,
-                                            isCurrentUser && styles.currentUserText
-                                        ]}>
-                                            {member.profile?.name || 'Unknown'} {isCurrentUser && '(You)'}
-                                        </Text>
-                                        <Text style={styles.memberFailures}>
-                                            {member.failure_count} failure{member.failure_count !== 1 ? 's' : ''}
-                                        </Text>
-                                    </View>
-                                    <Text
-                                        style={[
-                                            styles.memberBalance,
-                                            { color: getBalanceColor(member.current_balance) }
-                                        ]}
-                                    >
-                                        {member.current_balance >= 0 ? '+' : ''}{formatBalance(member.current_balance)}
-                                    </Text>
-                                </View>
-                            );
-                        })
-                    )}
-                </View>
-
-                {/* Debts You Owe */}
-                {pendingDebts.length > 0 && (
-                    <View style={styles.sectionContainer}>
-                        <Text style={styles.sectionTitle}>
-                            💸 You Owe
-                        </Text>
-                        {pendingDebts.map((tx) => (
-                            <View
-                                key={tx.id}
-                                style={styles.debtCard}
-                            >
-                                {tx.proof_photo_url && (
-                                    <ProofPhotoViewer photoUrl={tx.proof_photo_url} size="medium" />
-                                )}
-                                <View style={styles.debtInfo}>
-                                    <Text style={styles.debtName}>
-                                        {tx.to_user?.name || 'Unknown'}
-                                    </Text>
-                                    <Text style={styles.debtDescription}>
-                                        {tx.description || 'Logged failure'}
-                                    </Text>
-                                    {tx.proof_photo_url && (
-                                        <Text style={styles.proofIndicator}>📸 Has proof photo</Text>
-                                    )}
-                                </View>
-                                <Text style={styles.debtAmount}>
-                                    €{tx.amount.toFixed(2)}
-                                </Text>
-                            </View>
-                        ))}
-                    </View>
-                )}
-
-                {/* Credits Owed to You */}
-                {pendingCredits.length > 0 && (
-                    <View style={styles.sectionContainer}>
-                        <Text style={styles.sectionTitle}>
-                            💰 Owed to You
-                        </Text>
-                        {pendingCredits.map((tx) => (
-                            <View
-                                key={tx.id}
-                                style={styles.creditCard}
-                            >
-                                {tx.proof_photo_url && (
-                                    <ProofPhotoViewer photoUrl={tx.proof_photo_url} size="medium" />
-                                )}
-                                <View style={styles.creditInfo}>
-                                    <Text style={styles.creditName}>
-                                        {tx.from_user?.name || 'Unknown'}
-                                    </Text>
-                                    <Text style={styles.creditDescription}>
-                                        {tx.description || 'Logged failure'}
-                                    </Text>
-                                    {tx.proof_photo_url && (
-                                        <Text style={styles.proofIndicator}>📸 Has proof photo</Text>
-                                    )}
-                                </View>
-                                <View style={styles.creditAction}>
-                                    <Text style={styles.creditAmount}>
-                                        €{tx.amount.toFixed(2)}
-                                    </Text>
-                                    <TouchableOpacity
-                                        onPress={() => handleSettleDebt(tx.id)}
-                                        disabled={settlingId === tx.id}
-                                        style={styles.settleButton}
-                                    >
-                                        {settlingId === tx.id ? (
-                                            <ActivityIndicator size="small" color={colors.success} />
-                                        ) : (
-                                            <Text style={styles.settleButtonText}>Settle</Text>
-                                        )}
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-                        ))}
-                    </View>
-                )}
-
-                {/* Scheduled Goals Section */}
-                <View style={styles.sectionContainer}>
-                    <GoalsSection
-                        groupId={groupId}
-                        groupName={group.name}
-                        defaultPenalty={group.default_penalty_amount}
-                        groupMembers={members.map(m => ({
-                            id: m.user_id,
-                            name: m.profile?.name || 'Unknown'
-                        }))}
-                    />
-                </View>
-
-                {/* Danger Zone */}
-                <View style={styles.dangerZone}>
-                    <Text style={styles.dangerTitle}>⚠️ Danger Zone</Text>
-
-                    {isCreator ? (
-                        <TouchableOpacity
-                            onPress={() => setShowDeleteModal(true)}
-                            style={styles.dangerButton}
-                        >
-                            <Text style={styles.dangerButtonText}>🗑️ Delete Group</Text>
-                            <Text style={styles.dangerButtonSubtext}>
-                                Permanently delete this group and all data
-                            </Text>
-                        </TouchableOpacity>
-                    ) : (
-                        <>
-                            <TouchableOpacity
-                                onPress={() => {
-                                    const balance = currentMember?.current_balance || 0;
-                                    if (balance !== 0) {
-                                        if (balance < 0) {
-                                            StyledAlert.alert(
-                                                'Cannot Leave Yet',
-                                                `You owe €${Math.abs(balance).toFixed(2)} to other members. Please settle your debts before leaving the group.`
-                                            );
-                                        } else {
-                                            StyledAlert.alert(
-                                                'Cannot Leave Yet',
-                                                `Other members owe you €${balance.toFixed(2)}. Please have them settle their debts before you leave.`
-                                            );
-                                        }
-                                    } else {
-                                        setShowLeaveModal(true);
-                                    }
-                                }}
-                                style={[
-                                    styles.leaveButton,
-                                    currentMember?.current_balance !== 0 && styles.disabledLeaveButton
-                                ]}
-                            >
-                                <Text style={styles.leaveButtonText}>👋 Leave Group</Text>
-                                <Text style={styles.leaveButtonSubtext}>
-                                    {currentMember?.current_balance !== 0
-                                        ? 'Settle all balances first'
-                                        : 'Remove yourself from this group'}
-                                </Text>
-                            </TouchableOpacity>
-                        </>
-                    )}
-                </View>
-            </ScrollView>
-
-            {/* Big Red Failure Button */}
-            <View style={[styles.fabContainer, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
-                <TouchableOpacity
-                    onPress={handleLogFailure}
-                    activeOpacity={0.8}
-                    style={styles.fabButton}
-                >
-                    <Text style={styles.fabTitle}>🚨 I FAILED 🚨</Text>
-                    <Text style={styles.fabSubtitle}>
-                        Creates €{group.default_penalty_amount.toFixed(2)} debt to each member
-                    </Text>
-                </TouchableOpacity>
             </View>
 
-            {/* Log Failure Modal */}
+            <ScrollView
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+                contentContainerStyle={styles.content}
+                showsVerticalScrollIndicator={false}
+            >
+                {/* DASHBOARD TAB */}
+                {activeTab === 'dashboard' && (
+                    <>
+                        {/* Penalty Card */}
+                        <View style={styles.penaltyCard}>
+                            <View>
+                                <Text style={styles.penaltyLabel}>Current Penalty</Text>
+                                <Text style={styles.penaltyValue}>€{group.default_penalty_amount.toFixed(2)}</Text>
+                            </View>
+                            <View style={styles.verticalDivider} />
+                            <View>
+                                <Text style={styles.penaltyLabel}>Your Balance</Text>
+                                <Text style={[styles.penaltyValue, { color: getBalanceColor(currentMember?.current_balance || 0) }]}>
+                                    {(currentMember?.current_balance || 0) >= 0 ? '+' : ''}{formatBalance(currentMember?.current_balance || 0)}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.paddedSection}>
+                            <GoalsSection
+                                groupId={groupId}
+                                groupName={group.name}
+                                defaultPenalty={group.default_penalty_amount}
+                                groupMembers={members.map(m => ({ id: m.user_id, name: m.profile?.name || 'Unknown' }))}
+                                onMemberPress={handleMemberIdPress}
+                            />
+                        </View>
+
+                        <View style={styles.paddedSection}>
+                            <LeaderboardSection
+                                members={members}
+                                goals={goals}
+                                onMemberPress={handleMemberPress}
+                            />
+                        </View>
+                    </>
+                )}
+
+                {/* MEMBERS & BALANCES TAB */}
+                {activeTab === 'members' && (
+                    <>
+                        {/* Debts You Owe */}
+                        {pendingDebts.length > 0 && (
+                            <View style={styles.sectionContainer}>
+                                <Text style={styles.sectionTitle}>💸 You Owe</Text>
+                                {pendingDebts.map((tx) => (
+                                    <View key={tx.id} style={styles.debtCard}>
+                                        <View style={styles.debtInfo}>
+                                            <TouchableOpacity onPress={() => handleMemberIdPress(tx.to_user_id)}>
+                                                <Text style={styles.debtName}>{tx.to_user?.name || 'Unknown'}</Text>
+                                            </TouchableOpacity>
+                                            <Text style={styles.debtDescription}>{tx.description || 'Logged failure'}</Text>
+                                        </View>
+                                        <Text style={styles.debtAmount}>€{tx.amount.toFixed(2)}</Text>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+
+                        {/* Credits Owed to You */}
+                        {pendingCredits.length > 0 && (
+                            <View style={styles.sectionContainer}>
+                                <Text style={styles.sectionTitle}>💰 Owed to You</Text>
+                                {pendingCredits.map((tx) => (
+                                    <View key={tx.id} style={styles.creditCard}>
+                                        <View style={styles.creditInfo}>
+                                            <TouchableOpacity onPress={() => handleMemberIdPress(tx.from_user_id)}>
+                                                <Text style={styles.creditName}>{tx.from_user?.name || 'Unknown'}</Text>
+                                            </TouchableOpacity>
+                                            <Text style={styles.creditDescription}>{tx.description || 'Logged failure'}</Text>
+                                        </View>
+                                        <View style={styles.creditAction}>
+                                            <Text style={styles.creditAmount}>€{tx.amount.toFixed(2)}</Text>
+                                            <TouchableOpacity
+                                                onPress={() => handleSettleDebt(tx.id)}
+                                                disabled={settlingId === tx.id}
+                                                style={styles.settleButton}
+                                            >
+                                                {settlingId === tx.id ? (
+                                                    <ActivityIndicator size="small" color={colors.success} />
+                                                ) : (
+                                                    <Text style={styles.settleButtonText}>Settle</Text>
+                                                )}
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+
+                        <View style={styles.sectionContainer}>
+                            <Text style={styles.sectionTitle}>All Members</Text>
+                            <View style={styles.membersList}>
+                                {members.map((member) => (
+                                    <TouchableOpacity
+                                        key={member.id}
+                                        style={styles.memberRow}
+                                        onPress={() => handleMemberPress(member)}
+                                        activeOpacity={0.7}
+                                    >
+                                        {member.profile?.avatar_url ? (
+                                            <Image source={{ uri: member.profile.avatar_url }} style={styles.memberAvatar} />
+                                        ) : (
+                                            <View style={styles.memberAvatarPlaceholder}>
+                                                <Text style={styles.memberAvatarInitial}>
+                                                    {member.profile?.name?.charAt(0) || '?'}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        <View style={styles.memberInfo}>
+                                            <Text style={styles.memberName}>
+                                                {member.profile?.name || 'Unknown'} {member.user_id === user?.id && '(You)'}
+                                            </Text>
+                                            <Text style={styles.memberJoined}>
+                                                Joined {new Date(member.joined_at).toLocaleDateString()}
+                                            </Text>
+                                        </View>
+                                        <View style={styles.memberBalance}>
+                                            <Text style={[
+                                                styles.balanceText,
+                                                member.current_balance >= 0 ? styles.textGreen : styles.textRed
+                                            ]}>
+                                                {member.current_balance >= 0 ? '+' : ''}€{member.current_balance.toFixed(2)}
+                                            </Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+
+
+                    </>
+                )}
+
+                {/* SETTINGS TAB */}
+                {activeTab === 'settings' && (
+                    <View style={styles.sectionContainer}>
+                        <View style={styles.coverImageWrapper}>
+                            <TouchableOpacity
+                                style={styles.coverImageContainer}
+                                disabled={!isCreator}
+                                activeOpacity={0.8}
+                                onPress={async () => {
+                                    try {
+                                        const { pickImage, uploadGroupCover } = await import('../services/photoService');
+                                        const uri = await pickImage();
+                                        if (uri) {
+                                            safeHaptics('medium');
+                                            const publicUrl = await uploadGroupCover(uri, groupId);
+                                            await updateGroup(groupId, { image_url: publicUrl });
+                                            refetchGroup();
+                                            StyledAlert.alert('Success', 'Group image updated!');
+                                        }
+                                    } catch (error: any) {
+                                        StyledAlert.alert('Error', error.message);
+                                    }
+                                }}
+                            >
+                                {group.image_url ? (
+                                    <Image source={{ uri: group.image_url }} style={styles.coverImage} resizeMode="cover" />
+                                ) : (
+                                    <View style={[styles.coverPlaceholder, { backgroundColor: colors.surfaceHighlight }]}>
+                                        <Text style={{ fontSize: 40 }}>🖼️</Text>
+                                        {isCreator && <Text style={styles.coverPlaceholderText}>Set Cover Photo</Text>}
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.inviteCard}
+                            onPress={async () => {
+                                await Clipboard.setStringAsync(group.invite_code);
+                                safeHaptics('success');
+                                StyledAlert.alert('Copied!', `Code: ${group.invite_code}`);
+                            }}
+                        >
+                            <View>
+                                <Text style={styles.inviteLabel}>Invite Code</Text>
+                                <Text style={styles.inviteCode}>{group.invite_code}</Text>
+                            </View>
+                            <Text style={styles.copyText}>COPY</Text>
+                        </TouchableOpacity>
+
+                        <View style={styles.dangerZone}>
+                            <Text style={styles.dangerTitle}>Danger Zone</Text>
+                            {isCreator ? (
+                                <TouchableOpacity onPress={() => setShowDeleteModal(true)} style={styles.dangerButton}>
+                                    <Text style={styles.dangerButtonText}>Delete Group</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity onPress={() => setShowLeaveModal(true)} style={styles.leaveButton}>
+                                    <Text style={styles.leaveButtonText}>Leave Group</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+                )}
+            </ScrollView>
+
+            {/* Floating Action Button (Only on Dashboard) */}
+            {activeTab === 'dashboard' && (
+                <View style={[styles.fabContainer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+                    <TouchableOpacity
+                        onPress={handleLogFailure}
+                        activeOpacity={0.8}
+                        style={styles.fabButton}
+                    >
+                        <Text style={styles.fabTitle}>I FAILED</Text>
+                        <Text style={styles.fabSubtitle}>
+                            Pay €{group.default_penalty_amount.toFixed(2)}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
             <LogFailureModal
                 visible={showFailureModal}
                 onClose={() => setShowFailureModal(false)}
@@ -485,22 +469,28 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 memberCount={otherMembers.length}
             />
 
-            {/* Delete Confirmation Modal */}
+            <MemberDetailModal
+                visible={showMemberModal}
+                onClose={() => setShowMemberModal(false)}
+                member={selectedMember}
+                isCurrentUser={selectedMember?.user_id === user?.id}
+                groupCreatorId={group?.created_by}
+            />
+
             <ConfirmModal
                 visible={showDeleteModal}
                 title="Delete Group?"
-                message={`Are you sure you want to delete "${group.name}"?\n\nThis will permanently delete all members, transactions, and data. This action cannot be undone.`}
+                message="Permanently delete this group and all data?"
                 confirmText={isDeleting ? "Deleting..." : "Delete Group"}
                 onConfirm={handleDeleteGroup}
                 onCancel={() => setShowDeleteModal(false)}
                 confirmStyle="danger"
             />
 
-            {/* Leave Confirmation Modal */}
             <ConfirmModal
                 visible={showLeaveModal}
                 title="Leave Group?"
-                message={`Are you sure you want to leave "${group.name}"?\n\nYour balance and membership will be removed.`}
+                message="Are you sure you want to leave?"
                 confirmText={isDeleting ? "Leaving..." : "Leave Group"}
                 onConfirm={handleLeaveGroup}
                 onCancel={() => setShowLeaveModal(false)}
@@ -523,343 +513,365 @@ const styles = StyleSheet.create({
     },
     errorContainer: {
         flex: 1,
-        backgroundColor: colors.background,
-        alignItems: 'center',
         justifyContent: 'center',
-        padding: 24,
+        alignItems: 'center',
     },
     errorText: {
         color: colors.text,
-        fontSize: 18,
-    },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingBottom: 140, // Space for FAB
+        fontSize: 16,
     },
     header: {
-        paddingHorizontal: 24,
-        paddingTop: 16,
+        backgroundColor: colors.background,
+        paddingBottom: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        zIndex: 10,
     },
-    titleRow: {
+    topNav: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 8,
+        paddingHorizontal: 16,
+        marginBottom: 16,
+        height: 44,
     },
-    groupName: {
-        color: colors.text,
-        fontSize: 24,
-        fontWeight: 'bold',
-        flex: 1,
-        marginRight: 12,
-    },
-    headerButtons: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    chatButton: {
-        backgroundColor: colors.primary,
+    backButton: {
         width: 40,
         height: 40,
-        borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    chatButtonText: {
-        fontSize: 18,
-    },
-    inviteButton: {
+        borderRadius: 20,
         backgroundColor: colors.surface,
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
     },
-    inviteButtonText: {
-        color: colors.primary,
-        fontWeight: '500',
+    backIcon: {
+        fontSize: 24,
+        color: colors.text,
+        fontWeight: 'bold',
+        marginBottom: 4,
     },
-    penaltyText: {
-        color: colors.textMuted,
-        fontSize: 14,
-        marginTop: 4,
+    headerTitleContainer: {
+        flex: 1,
+        alignItems: 'center',
+        marginHorizontal: 16,
     },
-    codeContainer: {
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: colors.text,
+    },
+    shareButton: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 20,
+        backgroundColor: colors.surface,
+    },
+    shareIcon: {
+        fontSize: 20,
+    },
+    tabsContainer: {
+        flexDirection: 'row',
+        marginHorizontal: 16,
         backgroundColor: colors.surfaceHighlight,
         borderRadius: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        marginTop: 16,
-        borderWidth: 1,
-        borderColor: colors.border,
+        padding: 4,
+        marginBottom: 16, // Increased from 8
     },
-    codeLabel: {
-        color: colors.textMuted,
-        fontSize: 12,
-        marginBottom: 4,
-    },
-    codeRow: {
-        flexDirection: 'row',
+    tab: {
+        flex: 1,
+        paddingVertical: 8,
         alignItems: 'center',
-        justifyContent: 'space-between',
+        borderRadius: 10,
     },
-    codeValue: {
-        color: colors.primary,
-        fontWeight: 'bold',
-        fontFamily: 'monospace',
-        fontSize: 18,
+    activeTab: {
+        backgroundColor: colors.text, // White/Light active tab for high contrast
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
     },
-    copyHint: {
+    tabText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.textMuted,
+    },
+    activeTabText: {
+        color: colors.background, // Dark text on light tab
+        fontWeight: '800',
+    },
+    content: {
+        paddingTop: 16,
+        paddingBottom: 140, // Increased to prevent FAB overlap
+    },
+    penaltyCard: {
+        flexDirection: 'row',
+        backgroundColor: colors.surfaceHighlight, // Slightly lighter than surface
+        marginHorizontal: 16,
+        padding: 24,
+        borderRadius: 24,
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: colors.border + '40', // Subtle border
+    },
+    penaltyLabel: {
         color: colors.textMuted,
         fontSize: 12,
-        marginLeft: 12,
-    },
-    myBalanceCard: {
-        marginHorizontal: 24,
-        marginTop: 24,
-        backgroundColor: colors.surface,
-        borderRadius: 24,
-        padding: 20,
-    },
-    balanceLabel: {
-        color: colors.textMuted,
-        fontSize: 14,
+        fontWeight: '600',
+        textTransform: 'uppercase',
         marginBottom: 4,
+        textAlign: 'center',
     },
-    balanceAmount: {
-        fontSize: 32,
-        fontWeight: 'bold',
+    penaltyValue: {
+        color: colors.text,
+        fontSize: 20,
+        fontWeight: '800',
+        textAlign: 'center',
     },
-    failureCount: {
-        color: colors.textMuted,
-        fontSize: 14,
-        marginTop: 4,
+    verticalDivider: {
+        width: 1,
+        height: 40,
+        backgroundColor: colors.border,
     },
     sectionContainer: {
-        marginTop: 32,
-        paddingHorizontal: 24,
+        paddingHorizontal: 16,
+        marginTop: 16,
+    },
+    paddedSection: {
+        paddingHorizontal: 16,
     },
     sectionTitle: {
-        color: colors.text,
         fontSize: 18,
         fontWeight: 'bold',
-        marginBottom: 16,
-    },
-    emptyText: {
-        color: colors.textMuted,
+        color: colors.text,
+        marginBottom: 12,
     },
     memberRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 16,
+        padding: 12,
+        backgroundColor: colors.surface,
         borderRadius: 16,
         marginBottom: 8,
-        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     currentUserRow: {
-        backgroundColor: 'rgba(99, 102, 241, 0.1)', // primary with opacity
-        borderWidth: 1,
-        borderColor: 'rgba(99, 102, 241, 0.3)',
+        borderColor: colors.primary,
+        backgroundColor: colors.primary + '10',
     },
-    rankEmoji: {
-        fontSize: 24,
-        marginRight: 16,
-        width: 30,
-        textAlign: 'center',
+    memberAvatar: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.surfaceHighlight,
+        marginRight: 12,
     },
     memberInfo: {
         flex: 1,
     },
     memberName: {
+        fontSize: 16,
         fontWeight: '600',
         color: colors.text,
-        fontSize: 16,
-    },
-    currentUserText: {
-        color: colors.primary,
-    },
-    memberFailures: {
-        color: colors.textMuted,
-        fontSize: 12,
-        marginTop: 2,
     },
     memberBalance: {
-        fontWeight: 'bold',
-        fontSize: 16,
+        justifyContent: 'center',
+        alignItems: 'flex-end',
     },
     debtCard: {
+        padding: 16,
         backgroundColor: colors.surface,
         borderRadius: 16,
-        padding: 16,
         marginBottom: 8,
         flexDirection: 'row',
-        alignItems: 'center',
         justifyContent: 'space-between',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
     },
-    debtInfo: {
-        flex: 1,
-    },
-    debtName: {
-        color: colors.text,
-        fontWeight: '500',
-        fontSize: 16,
-    },
-    debtDescription: {
-        color: colors.textMuted,
-        fontSize: 12,
-        marginTop: 4,
-    },
-    proofIndicator: {
-        color: colors.primary,
-        fontSize: 11,
-        marginTop: 4,
-        fontStyle: 'italic',
-    },
-    debtAmount: {
-        color: colors.error,
-        fontWeight: 'bold',
-        fontSize: 18,
-        marginRight: 8,
-    },
+    debtInfo: { flex: 1 },
+    debtName: { fontSize: 16, fontWeight: '700', color: colors.text },
+    debtDescription: { color: colors.textMuted, fontSize: 13 },
+    debtAmount: { fontSize: 18, fontWeight: '700', color: colors.error },
     creditCard: {
+        padding: 16,
         backgroundColor: colors.surface,
         borderRadius: 16,
-        padding: 16,
         marginBottom: 8,
         flexDirection: 'row',
-        alignItems: 'center',
         justifyContent: 'space-between',
-    },
-    creditInfo: {
-        flex: 1,
-    },
-    creditName: {
-        color: colors.text,
-        fontWeight: '500',
-        fontSize: 16,
-    },
-    creditDescription: {
-        color: colors.textMuted,
-        fontSize: 12,
-        marginTop: 4,
-    },
-    creditAction: {
-        flexDirection: 'row',
         alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
     },
-    creditAmount: {
-        color: colors.success,
-        fontWeight: 'bold',
-        fontSize: 18,
-        marginRight: 12,
-    },
+    creditInfo: { flex: 1 },
+    creditName: { fontSize: 16, fontWeight: '700', color: colors.text },
+    creditDescription: { color: colors.textMuted, fontSize: 13 },
+    creditAction: { flexDirection: 'row', alignItems: 'center' },
+    creditAmount: { fontSize: 18, fontWeight: '700', color: colors.success, marginRight: 12 },
     settleButton: {
-        backgroundColor: 'rgba(34, 197, 94, 0.2)', // success with opacity
+        backgroundColor: colors.success,
         paddingHorizontal: 12,
-        paddingVertical: 8,
+        paddingVertical: 6,
         borderRadius: 8,
-        minWidth: 70,
-        alignItems: 'center',
     },
     settleButtonText: {
-        color: colors.success,
-        fontWeight: '600',
+        color: '#fff',
+        fontWeight: '700',
         fontSize: 12,
+    },
+    coverImageWrapper: {
+        marginBottom: 24,
+    },
+    coverImageContainer: {
+        height: 200,
+        borderRadius: 24,
+        overflow: 'hidden',
+        backgroundColor: colors.surfaceHighlight,
+    },
+    coverImage: { width: '100%', height: '100%' },
+    coverPlaceholder: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    coverPlaceholderText: {
+        color: colors.textMuted,
+        fontWeight: '600',
+        marginTop: 8,
+    },
+    inviteCard: {
+        backgroundColor: colors.surface,
+        padding: 16,
+        borderRadius: 16,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
+        marginBottom: 24,
+    },
+    inviteLabel: {
+        color: colors.textMuted,
+        fontSize: 12,
+        textTransform: 'uppercase',
+        fontWeight: '600',
+        marginBottom: 4,
+    },
+    inviteCode: {
+        color: colors.primary,
+        fontSize: 24,
+        fontWeight: '800',
+        letterSpacing: 2,
+    },
+    copyText: {
+        color: colors.textMuted,
+        fontWeight: '700',
+        fontSize: 12,
+    },
+    dangerZone: {
+        marginTop: 24,
+        padding: 16,
+        borderRadius: 16,
+        backgroundColor: colors.error + '10',
+        borderWidth: 1,
+        borderColor: colors.error + '20',
+    },
+    dangerTitle: {
+        color: colors.error,
+        fontWeight: '700',
+        marginBottom: 12,
+        fontSize: 16,
+    },
+    dangerButton: {
+        backgroundColor: colors.error,
+        padding: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    dangerButtonText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    leaveButton: {
+        backgroundColor: colors.surface,
+        padding: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.warning,
+    },
+    leaveButtonText: {
+        color: colors.warning,
+        fontWeight: 'bold',
+        fontSize: 16,
     },
     fabContainer: {
         position: 'absolute',
         bottom: 0,
         left: 0,
         right: 0,
-        padding: 24,
-        backgroundColor: colors.background,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
+        alignItems: 'center',
+        paddingHorizontal: 20,
     },
     fabButton: {
         backgroundColor: colors.error,
-        borderRadius: 16,
-        paddingVertical: 20,
+        borderRadius: 24,
+        paddingVertical: 14,
+        width: '100%',
         alignItems: 'center',
-        ...Platform.select({
-            ios: {
-                shadowColor: colors.error,
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.4,
-                shadowRadius: 12,
-            },
-            android: {
-                elevation: 8,
-                shadowColor: colors.error,
-            },
-            web: {
-                boxShadow: `0px 4px 12px ${colors.error}66`, // 66 = 0.4 opacity
-            }
-        }),
-        elevation: 8,
+        shadowColor: colors.error,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+        elevation: 6,
     },
     fabTitle: {
-        color: '#ffffff',
-        fontSize: 24,
-        fontWeight: 'bold',
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '900',
     },
     fabSubtitle: {
-        color: 'rgba(255, 255, 255, 0.8)',
-        fontSize: 14,
-        marginTop: 4,
-    },
-    dangerZone: {
-        marginTop: 40,
-        marginBottom: 20,
-        marginHorizontal: 24,
-        padding: 20,
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: 'rgba(239, 68, 68, 0.3)',
-    },
-    dangerTitle: {
-        color: colors.error,
-        fontSize: 16,
-        fontWeight: '600',
-        marginBottom: 16,
-    },
-    dangerButton: {
-        backgroundColor: colors.error,
-        borderRadius: 12,
-        padding: 16,
-    },
-    dangerButtonText: {
-        color: '#ffffff',
-        fontSize: 16,
+        color: 'rgba(255,255,255,0.8)',
+        fontSize: 11,
         fontWeight: '600',
     },
-    dangerButtonSubtext: {
-        color: 'rgba(255, 255, 255, 0.7)',
-        fontSize: 12,
-        marginTop: 4,
-    },
-    leaveButton: {
+    membersList: {
         backgroundColor: colors.surface,
-        borderRadius: 12,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: colors.warning,
+        borderRadius: 16,
+        overflow: 'hidden',
     },
-    leaveButtonText: {
-        color: colors.warning,
+    memberAvatarPlaceholder: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.surfaceHighlight,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    memberAvatarInitial: {
         fontSize: 16,
-        fontWeight: '600',
-    },
-    leaveButtonSubtext: {
+        fontWeight: 'bold',
         color: colors.textMuted,
-        fontSize: 12,
-        marginTop: 4,
     },
-    disabledLeaveButton: {
-        opacity: 0.5,
-        borderColor: colors.textMuted,
+    memberJoined: {
+        fontSize: 12,
+        color: colors.textMuted,
+        marginTop: 2,
+    },
+    balanceText: {
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    textGreen: {
+        color: colors.success,
+    },
+    textRed: {
+        color: colors.error,
     },
 });

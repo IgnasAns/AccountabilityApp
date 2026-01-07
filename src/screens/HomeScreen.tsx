@@ -1,11 +1,13 @@
 import React, { useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, StyleSheet, Image, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../hooks/useAuth';
 import { useGroups } from '../hooks/useGroups';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../theme/colors';
+
+const { width } = Dimensions.get('window');
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -18,7 +20,7 @@ export default function HomeScreen({ navigation }: Props) {
     const [longLoading, setLongLoading] = React.useState(false);
     const insets = useSafeAreaInsets();
 
-    // Refetch when screen comes into focus (e.g., after creating a group)
+    // Refetch when screen comes into focus
     useFocusEffect(
         useCallback(() => {
             refetch();
@@ -53,54 +55,27 @@ export default function HomeScreen({ navigation }: Props) {
     };
 
     const getBalanceText = (balance: number) => {
-        if (balance > 0) return 'You are owed';
-        if (balance < 0) return 'You owe';
-        return 'All settled';
+        if (balance > 0) return 'YOU ARE OWED';
+        if (balance < 0) return 'YOU OWE';
+        return 'SETTLED UP';
     };
 
-    // Only show full loading screen for first 3 seconds of initial load
     if (loading && !refreshing && !longLoading) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={{ color: colors.textMuted, marginTop: 16 }}>Loading...</Text>
             </View>
         );
     }
 
-    // We don't block render on error anymore, to allow user to sign out or see existing data
-    // if (error) { ... }
-
     return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
-            {/* Error Banner */}
-            {error && (
-                <View style={styles.errorBanner}>
-                    <Text style={styles.errorBannerText}>⚠️ {error}</Text>
-                    <TouchableOpacity onPress={onRefresh}>
-                        <Text style={styles.errorBannerRetry}>Retry</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
-            {/* Header */}
-            <View style={styles.header}>
-                <View>
-                    <Text style={styles.welcomeText}>Welcome back,</Text>
-                    <Text style={styles.userNameText}>
-                        {profile?.name || 'User'}
-                    </Text>
-                </View>
-                <TouchableOpacity
-                    onPress={signOut}
-                    style={styles.signOutButton}
-                >
-                    <Text style={styles.signOutText}>Sign out</Text>
-                </TouchableOpacity>
-            </View>
+        <View style={styles.container}>
+            <View style={{ height: insets.top }} />
 
             <ScrollView
                 style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
+                showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
@@ -109,91 +84,129 @@ export default function HomeScreen({ navigation }: Props) {
                     />
                 }
             >
-                {/* Net Balance Card */}
-                <View style={styles.balanceCard}>
-                    <Text style={styles.balanceLabel}>Your Net Balance</Text>
-                    <Text
-                        style={[
-                            styles.balanceAmount,
-                            { color: getBalanceColor(netBalance) }
-                        ]}
-                    >
-                        {formatBalance(netBalance)}
+                {/* Error Banner */}
+                {error && (
+                    <View style={styles.errorBanner}>
+                        <Text style={styles.errorBannerText}>⚠️ {error}</Text>
+                        <TouchableOpacity onPress={onRefresh}>
+                            <Text style={styles.errorBannerRetry}>Retry</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* Main Balance Section */}
+                <View style={styles.balanceHeader}>
+                    <Text style={[styles.balanceAmount, { color: getBalanceColor(netBalance) }]}>
+                        {netBalance >= 0 ? '+' : '-'}{formatBalance(netBalance)}
                     </Text>
-                    <Text
-                        style={[
-                            styles.balanceSubtext,
-                            { color: getBalanceColor(netBalance) }
-                        ]}
-                    >
-                        {getBalanceText(netBalance)}
-                    </Text>
+                    <Text style={styles.balanceLabel}>{getBalanceText(netBalance)}</Text>
                 </View>
 
                 {/* Quick Actions */}
-                <View style={styles.actionContainer}>
+                <View style={styles.actionRow}>
                     <TouchableOpacity
                         onPress={() => navigation.navigate('CreateGroup')}
-                        style={styles.createButton}
+                        style={styles.actionButton}
                     >
-                        <Text style={styles.createButtonText}>Create Group</Text>
+                        <View style={styles.actionIconContainer}>
+                            <Text style={styles.actionIcon}>➕</Text>
+                        </View>
+                        <Text style={styles.actionLabel}>Create</Text>
                     </TouchableOpacity>
+
                     <TouchableOpacity
                         onPress={() => navigation.navigate('JoinGroup')}
-                        style={styles.joinButton}
+                        style={styles.actionButton}
                     >
-                        <Text style={styles.joinButtonText}>Join Group</Text>
+                        <View style={styles.actionIconContainer}>
+                            <Text style={styles.actionIcon}>🔗</Text>
+                        </View>
+                        <Text style={styles.actionLabel}>Join</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        onPress={() => navigation.navigate('ProfileTab')}
+                        style={styles.actionButton}
+                    >
+                        <View style={styles.actionIconContainer}>
+                            <Text style={styles.actionIcon}>👤</Text>
+                        </View>
+                        <Text style={styles.actionLabel}>Profile</Text>
                     </TouchableOpacity>
                 </View>
 
-                {/* Groups List */}
-                <View style={styles.sectionContainer}>
-                    <Text style={styles.sectionTitle}>
-                        Your Groups
-                    </Text>
+                {/* Groups Section */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Accountability Groups</Text>
 
                     {groups.length === 0 ? (
-                        <View style={styles.emptyStateContainer}>
-                            <Text style={styles.emptyStateEmoji}>🎯</Text>
-                            <Text style={styles.emptyStateTitle}>
-                                No groups yet
-                            </Text>
-                            <Text style={styles.emptyStateText}>
-                                Create or join a group to start tracking accountability bets with friends.
-                            </Text>
+                        <View style={styles.emptyCard}>
+                            <Text style={styles.emptyEmoji}>🎯</Text>
+                            <Text style={styles.emptyText}>No active groups yet.</Text>
+                            <TouchableOpacity
+                                style={styles.emptyButton}
+                                onPress={() => navigation.navigate('CreateGroup')}
+                            >
+                                <Text style={styles.emptyButtonText}>Start a Group</Text>
+                            </TouchableOpacity>
                         </View>
                     ) : (
                         groupBalances.map(({ group, balance }) => (
                             <TouchableOpacity
                                 key={group.id}
-                                onPress={() => navigation.navigate('GroupDetail', { groupId: group.id })}
                                 style={styles.groupCard}
-                                activeOpacity={0.7}
+                                onPress={() => {
+                                    navigation.navigate('GroupDetail', { groupId: group.id });
+                                }}
                             >
-                                <View style={styles.groupInfo}>
-                                    <Text style={styles.groupName}>
+                                <View style={styles.groupImageContainer}>
+                                    {group.image_url ? (
+                                        <Image
+                                            source={{ uri: group.image_url }}
+                                            style={styles.groupImage}
+                                            resizeMode="cover"
+                                        />
+                                    ) : (
+                                        <View style={[styles.groupImagePlaceholder, { backgroundColor: colors.surfaceHighlight }]}>
+                                            <Text style={styles.groupInitial}>{group.name.charAt(0).toUpperCase()}</Text>
+                                        </View>
+                                    )}
+                                    {/* Member Bubbles */}
+                                    {balance !== undefined && ( // Just to ensure we're inside the map
+                                        <View style={styles.memberBubblesContainer}>
+                                            {(groupBalances.find(b => b.group.id === group.id)?.memberAvatars || [])
+                                                .slice(0, 3)
+                                                .map((avatar, index) => (
+                                                    <Image
+                                                        key={index}
+                                                        source={{ uri: avatar }}
+                                                        style={[
+                                                            styles.memberBubble,
+                                                            { transform: [{ translateX: -10 * index }] } // Overlap effect
+                                                        ]}
+                                                    />
+                                                ))}
+                                        </View>
+                                    )}
+                                </View>
+
+                                <View style={styles.groupContent}>
+                                    <Text style={styles.groupName} numberOfLines={1}>
                                         {group.name}
                                     </Text>
+
+                                    <Text style={[styles.groupStatus, { color: getBalanceColor(balance) }]}>
+                                        {balance > 0 ? 'OWED TO YOU' : balance < 0 ? 'YOU OWE' : 'SETTLED'}
+                                    </Text>
                                     <Text style={styles.groupPenalty}>
-                                        Penalty: €{group.default_penalty_amount.toFixed(2)}
+                                        €{group.default_penalty_amount.toFixed(2)} penalty
                                     </Text>
                                 </View>
-                                <View style={styles.groupBalance}>
-                                    <Text
-                                        style={[
-                                            styles.groupBalanceAmount,
-                                            { color: getBalanceColor(balance) }
-                                        ]}
-                                    >
-                                        {balance >= 0 ? '+' : ''}{formatBalance(balance)}
-                                    </Text>
-                                    <Text
-                                        style={[
-                                            styles.groupBalanceSubtext,
-                                            { color: getBalanceColor(balance) }
-                                        ]}
-                                    >
-                                        {balance > 0 ? 'owed' : balance < 0 ? 'owe' : 'settled'}
+
+                                <View style={styles.groupBalanceContainer}>
+                                    <Text style={[styles.groupBalanceValue, { color: getBalanceColor(balance) }]}>
+                                        {balance !== 0 && (balance > 0 ? '+' : '')}
+                                        {formatBalance(balance)}
                                     </Text>
                                 </View>
                             </TouchableOpacity>
@@ -201,44 +214,30 @@ export default function HomeScreen({ navigation }: Props) {
                     )}
                 </View>
 
-                {/* Recent Activity (placeholder) */}
-                {groups.length > 0 && (
-                    <View style={styles.sectionContainer}>
-                        <Text style={styles.sectionTitle}>
-                            How It Works
-                        </Text>
-                        <View style={styles.infoCard}>
-                            <View style={styles.infoRow}>
-                                <Text style={styles.infoEmoji}>🚨</Text>
-                                <View style={styles.infoTextContainer}>
-                                    <Text style={styles.infoTitle}>Log a Failure</Text>
-                                    <Text style={styles.infoDescription}>
-                                        Press the big red button when you slip up
-                                    </Text>
-                                </View>
-                            </View>
-                            <View style={styles.infoRow}>
-                                <Text style={styles.infoEmoji}>💸</Text>
-                                <View style={styles.infoTextContainer}>
-                                    <Text style={styles.infoTitle}>Automatic Debts</Text>
-                                    <Text style={styles.infoDescription}>
-                                        You'll owe the penalty to each group member
-                                    </Text>
-                                </View>
-                            </View>
-                            <View style={styles.infoRowLast}>
-                                <Text style={styles.infoEmoji}>✅</Text>
-                                <View style={styles.infoTextContainer}>
-                                    <Text style={styles.infoTitle}>Settle Up</Text>
-                                    <Text style={styles.infoDescription}>
-                                        Pay your debts and mark them as settled
-                                    </Text>
-                                </View>
-                            </View>
-                        </View>
+                {/* Info Section */}
+                <View style={styles.infoSection}>
+                    <Text style={styles.infoHeading}>How it works</Text>
+                    <View style={styles.infoCard}>
+                        <InfoItem emoji="👋" title="Join or Create" desc="Invite your mates to a new group" />
+                        <InfoItem emoji="📉" title="Pact Failure" desc="Log a slip-up, and everyone gets paid" />
+                        <InfoItem emoji="🧾" title="Ledger" desc="Track who owes who and settle up" last />
                     </View>
-                )}
+                </View>
+
+                <View style={{ height: 40 }} />
             </ScrollView>
+        </View>
+    );
+}
+
+function InfoItem({ emoji, title, desc, last }: { emoji: string; title: string; desc: string; last?: boolean }) {
+    return (
+        <View style={[styles.infoItem, last && { borderBottomWidth: 0 }]}>
+            <Text style={styles.infoItemEmoji}>{emoji}</Text>
+            <View style={{ flex: 1 }}>
+                <Text style={styles.infoItemTitle}>{title}</Text>
+                <Text style={styles.infoItemDesc}>{desc}</Text>
+            </View>
         </View>
     );
 }
@@ -251,238 +250,241 @@ const styles = StyleSheet.create({
     loadingContainer: {
         flex: 1,
         backgroundColor: colors.background,
-        alignItems: 'center',
         justifyContent: 'center',
-    },
-    header: {
-        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 24,
-        paddingTop: 16,
-        paddingBottom: 8,
-    },
-    welcomeText: {
-        color: colors.textMuted,
-        fontSize: 14,
-    },
-    userNameText: {
-        color: colors.text,
-        fontSize: 20,
-        fontWeight: 'bold',
-    },
-    signOutButton: {
-        backgroundColor: colors.surface,
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-    },
-    signOutText: {
-        color: colors.textMuted,
     },
     scrollView: {
         flex: 1,
     },
     scrollContent: {
-        paddingHorizontal: 24,
-        paddingBottom: 24,
+        paddingHorizontal: 20,
+        paddingTop: 20,
     },
-    balanceCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 24,
-        padding: 24,
-        marginTop: 16,
+    errorBanner: {
+        backgroundColor: colors.error + '20',
+        padding: 12,
+        borderRadius: 12,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: colors.error + '40',
     },
-    balanceLabel: {
-        color: colors.textMuted,
-        fontSize: 16,
-        marginBottom: 8,
+    errorBannerText: {
+        color: colors.error,
+        flex: 1,
+        fontSize: 13,
+    },
+    errorBannerRetry: {
+        color: colors.error,
+        fontWeight: 'bold',
+        textDecorationLine: 'underline',
+        marginLeft: 10,
+    },
+    balanceHeader: {
+        alignItems: 'center',
+        marginTop: 24, // Reduced
+        marginBottom: 32, // Reduced
     },
     balanceAmount: {
-        fontSize: 48,
-        fontWeight: 'bold',
-        marginBottom: 4,
+        fontSize: 42, // Reduced from 56
+        fontWeight: '800',
+        letterSpacing: -1,
     },
-    balanceSubtext: {
-        fontSize: 18,
-        opacity: 0.8,
+    balanceLabel: {
+        fontSize: 13,
+        color: colors.textMuted,
+        fontWeight: '700',
+        letterSpacing: 1.5,
+        marginTop: 4,
     },
-    actionContainer: {
+    actionRow: {
         flexDirection: 'row',
-        gap: 12,
-        marginTop: 24,
+        justifyContent: 'space-around',
+        marginBottom: 32, // Reduced
+        paddingHorizontal: 20,
     },
-    createButton: {
-        flex: 1,
-        backgroundColor: colors.primary,
-        padding: 16,
-        borderRadius: 16,
+    actionButton: {
         alignItems: 'center',
     },
-    createButtonText: {
-        color: colors.text,
-        fontWeight: '600',
-    },
-    joinButton: {
-        flex: 1,
+    actionIconContainer: {
+        width: 48, // Reduced from 56
+        height: 48,
+        borderRadius: 24,
         backgroundColor: colors.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 6,
         borderWidth: 1,
         borderColor: colors.border,
-        padding: 16,
-        borderRadius: 16,
-        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
     },
-    joinButtonText: {
-        color: colors.text,
+    actionIcon: {
+        fontSize: 20, // Reduced
+    },
+    actionLabel: {
+        color: colors.textMuted,
+        fontSize: 11,
         fontWeight: '600',
     },
-    sectionContainer: {
-        marginTop: 32,
+    section: {
+        marginBottom: 24,
     },
     sectionTitle: {
         color: colors.text,
-        fontSize: 18,
-        fontWeight: 'bold',
+        fontSize: 16, // Slightly smaller
+        fontWeight: '800', // Bold
         marginBottom: 16,
-    },
-    emptyStateContainer: {
-        backgroundColor: colors.surface,
-        borderRadius: 16,
-        padding: 32,
-        alignItems: 'center',
-    },
-    emptyStateEmoji: {
-        fontSize: 40,
-        marginBottom: 12,
-    },
-    emptyStateTitle: {
-        color: colors.text,
-        fontWeight: '600',
-        textAlign: 'center',
-        marginBottom: 8,
-    },
-    emptyStateText: {
-        color: colors.textMuted,
-        textAlign: 'center',
+        paddingHorizontal: 4,
     },
     groupCard: {
-        backgroundColor: colors.surface,
-        borderRadius: 16,
-        padding: 20,
-        marginBottom: 12,
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        backgroundColor: colors.surface,
+        borderRadius: 20, // Slightly tighter radii
+        padding: 12, // Reduced padding
+        marginBottom: 10,
+        borderWidth: 1,
+        borderColor: colors.border,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15, // Softer shadow
+        shadowRadius: 6,
+        elevation: 3,
     },
-    groupInfo: {
+    groupImageContainer: {
+        marginRight: 12, // Reduced margin
+    },
+    groupImage: {
+        width: 48, // Reduced from 60
+        height: 48,
+        borderRadius: 16,
+    },
+    memberBubblesContainer: {
+        position: 'absolute',
+        bottom: -6,
+        right: -6,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    memberBubble: {
+        width: 20, // Reduced
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderColor: colors.surface,
+        backgroundColor: colors.surfaceHighlight,
+    },
+    groupImagePlaceholder: {
+        width: 48, // Reduced
+        height: 48,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    groupInitial: {
+        color: colors.text,
+        fontSize: 20,
+        fontWeight: 'bold',
+    },
+    groupContent: {
         flex: 1,
+        justifyContent: 'center',
     },
     groupName: {
         color: colors.text,
-        fontWeight: '600',
-        fontSize: 18,
+        fontSize: 16,
+        fontWeight: '700',
+        marginBottom: 2,
+    },
+    groupStatus: {
+        fontSize: 11, // Reduced
+        fontWeight: '700',
+        marginBottom: 2,
     },
     groupPenalty: {
         color: colors.textMuted,
+        fontSize: 11,
+    },
+    groupBalanceContainer: {
+        marginLeft: 8,
+    },
+    groupBalanceValue: {
+        fontSize: 16, // Reduced
+        fontWeight: '800',
+    },
+    emptyCard: {
+        backgroundColor: colors.surface,
+        borderRadius: 20,
+        padding: 24,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    emptyEmoji: {
+        fontSize: 40,
+        marginBottom: 12,
+    },
+    emptyText: {
+        color: colors.textMuted,
         fontSize: 14,
-        marginTop: 4,
+        marginBottom: 16,
     },
-    groupBalance: {
-        alignItems: 'flex-end',
+    emptyButton: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 12,
     },
-    groupBalanceAmount: {
-        fontSize: 20,
+    emptyButtonText: {
+        color: colors.text,
         fontWeight: 'bold',
+        fontSize: 13,
     },
-    groupBalanceSubtext: {
+    infoSection: {
+        marginTop: 0,
+        opacity: 0.8, // Make it subtle
+    },
+    infoHeading: {
+        color: colors.textMuted,
         fontSize: 12,
-        opacity: 0.8,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 8,
+        paddingHorizontal: 4,
     },
     infoCard: {
-        backgroundColor: colors.surfaceHighlight,
-        borderRadius: 16,
-        padding: 20,
+        backgroundColor: colors.surface,
+        borderRadius: 20,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
-    infoRow: {
+    infoItem: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
-        marginBottom: 16,
+        alignItems: 'center',
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
     },
-    infoRowLast: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-    },
-    infoEmoji: {
-        fontSize: 24,
+    infoItemEmoji: {
+        fontSize: 20,
         marginRight: 12,
     },
-    infoTextContainer: {
-        flex: 1,
-    },
-    infoTitle: {
+    infoItemTitle: {
         color: colors.text,
-        fontWeight: '600',
-    },
-    infoDescription: {
-        color: colors.textMuted,
         fontSize: 14,
-        marginTop: 4,
+        fontWeight: '700',
     },
-    centerContent: {
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 32,
-    },
-    errorEmoji: {
-        fontSize: 48,
-        marginBottom: 16,
-    },
-    errorTitle: {
-        color: colors.text,
-        fontSize: 20,
-        fontWeight: 'bold',
-        marginBottom: 8,
-    },
-    errorText: {
-        color: colors.error,
-        textAlign: 'center',
-        marginBottom: 24,
-    },
-    retryButton: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 24,
-        paddingVertical: 12,
-        borderRadius: 8,
-    },
-    retryButtonText: {
-        color: colors.text,
-        fontWeight: '600',
-    },
-    signOutLink: {
-        marginTop: 16,
-        padding: 8,
-    },
-    signOutLinkText: {
+    infoItemDesc: {
         color: colors.textMuted,
-        textDecorationLine: 'underline',
-    },
-    errorBanner: {
-        backgroundColor: colors.error,
-        padding: 12,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    errorBannerText: {
-        color: '#fff',
-        flex: 1,
-        marginRight: 8,
         fontSize: 12,
-    },
-    errorBannerRetry: {
-        color: '#fff',
-        fontWeight: 'bold',
-        textDecorationLine: 'underline',
+        marginTop: 2,
     },
 });
