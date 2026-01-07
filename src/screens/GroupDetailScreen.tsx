@@ -430,8 +430,18 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                         <View style={styles.settingsGroup}>
                             <Text style={styles.settingsTitle}>Danger Zone</Text>
                             <TouchableOpacity
-                                style={styles.leaveButton}
-                                onPress={() => setShowLeaveModal(true)}
+                                style={[styles.leaveButton, { opacity: currentMember?.current_balance !== 0 ? 0.6 : 1 }]}
+                                onPress={() => {
+                                    const balance = currentMember?.current_balance || 0;
+                                    if (Math.abs(balance) > 0.01) { // Use small epsilon for float comparison
+                                        const msg = balance < 0
+                                            ? `You owe €${Math.abs(balance).toFixed(2)}. Please settle your debts before leaving.`
+                                            : `You have a surplus of €${balance.toFixed(2)}. Please settle your balance before leaving.`;
+                                        StyledAlert.alert('Cannot Leave', msg);
+                                        return;
+                                    }
+                                    setShowLeaveModal(true);
+                                }}
                             >
                                 <Text style={styles.leaveButtonText}>Leave Group</Text>
                             </TouchableOpacity>
