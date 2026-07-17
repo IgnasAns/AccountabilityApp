@@ -9,6 +9,7 @@ import {
 import { GoalWithCompletions, GoalStatus } from '../types/database';
 import { colors } from '../theme/colors';
 import { safeHaptics } from '../utils/haptics';
+import AppIcon from './AppIcon';
 
 interface Props {
     goal: GoalWithCompletions;
@@ -51,8 +52,8 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
             setCompleting(true);
             safeHaptics('medium');
             await onComplete(goal.id);
-        } catch (error) {
-            console.error('Failed to complete goal:', error);
+        } catch {
+            // Error handled by caller
         } finally {
             setCompleting(false);
         }
@@ -71,8 +72,8 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
             setCompleting(true);
             safeHaptics('heavy');
             await onNegativeLog(goal.id, 1);
-        } catch (error) {
-            console.error('Failed to log occurrence:', error);
+        } catch {
+            // Error handled by caller
         } finally {
             setCompleting(false);
         }
@@ -86,7 +87,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                     color: colors.success,
                     bgColor: 'rgba(34, 197, 94, 0.1)',
                     borderColor: 'rgba(34, 197, 94, 0.3)',
-                    text: '✓ Clean today!',
+                    text: 'Clean today',
                     urgent: false,
                 };
             } else {
@@ -104,7 +105,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                     color: colors.error,
                     bgColor: 'rgba(239, 68, 68, 0.1)',
                     borderColor: 'rgba(239, 68, 68, 0.3)',
-                    text: `⚠️ Overdue by ${Math.abs(status.days_remaining)} day${Math.abs(status.days_remaining) !== 1 ? 's' : ''}`,
+                    text: `Overdue by ${Math.abs(status.days_remaining)} day${Math.abs(status.days_remaining) !== 1 ? 's' : ''}`,
                     urgent: true,
                 };
             } else if (status.days_remaining <= 1) {
@@ -112,7 +113,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                     color: colors.warning,
                     bgColor: 'rgba(234, 179, 8, 0.1)',
                     borderColor: 'rgba(234, 179, 8, 0.3)',
-                    text: status.days_remaining <= 0 ? '⏰ Due today!' : '⏰ Due tomorrow',
+                    text: status.days_remaining <= 0 ? 'Due today' : 'Due tomorrow',
                     urgent: true,
                 };
             } else {
@@ -120,7 +121,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                     color: colors.success,
                     bgColor: 'rgba(34, 197, 94, 0.1)',
                     borderColor: 'rgba(34, 197, 94, 0.3)',
-                    text: `✓ ${status.days_remaining} days remaining`,
+                    text: `${status.days_remaining} days remaining`,
                     urgent: false,
                 };
             }
@@ -146,7 +147,8 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
             if (!status.last_completion) return 'Never completed';
             const date = new Date(status.last_completion);
             const now = new Date();
-            const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+            const diffMs = Math.max(0, now.getTime() - date.getTime());
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
             if (diffDays === 0) return 'Completed today';
             if (diffDays === 1) return 'Completed yesterday';
@@ -175,14 +177,14 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                 <View style={styles.headerActions}>
                     <View style={[styles.modeBadge, isNegative && styles.modeBadgeNegative]}>
                         <Text style={styles.modeBadgeText}>
-                            {isNegative ? '🚫' : '✅'}
+                            {isNegative ? 'Avoid' : 'Goal'}
                         </Text>
                     </View>
                     <TouchableOpacity
                         style={styles.calendarButton}
                         onPress={() => onViewCalendar(goal.id)}
                     >
-                        <Text style={styles.calendarIcon}>📅</Text>
+                        <AppIcon name="calendar-month-outline" size={20} color={colors.textMuted} />
                     </TouchableOpacity>
                 </View>
             </View>
@@ -237,7 +239,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                         <ActivityIndicator color="#fff" />
                     ) : (
                         <>
-                            <Text style={styles.negativeButtonIcon}>👆</Text>
+                            <AppIcon name="alert-circle-outline" size={18} color="#fff" />
                             <Text style={styles.negativeButtonText}>I Slipped Up</Text>
                         </>
                     )}
@@ -256,7 +258,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                         <ActivityIndicator color="#fff" />
                     ) : (
                         <>
-                            <Text style={styles.completeButtonIcon}>📸</Text>
+                            <AppIcon name="camera-outline" size={18} color="#fff" />
                             <Text style={styles.completeButtonText}>Mark Complete</Text>
                         </>
                     )}
@@ -279,8 +281,8 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
 const styles = StyleSheet.create({
     card: {
         backgroundColor: colors.surface,
-        borderRadius: 20,
-        padding: 20,
+        borderRadius: 8,
+        padding: 16,
         marginBottom: 16,
         borderWidth: 2,
     },
@@ -292,7 +294,7 @@ const styles = StyleSheet.create({
     emojiContainer: {
         width: 56,
         height: 56,
-        borderRadius: 16,
+        borderRadius: 8,
         backgroundColor: `${colors.success}15`,
         justifyContent: 'center',
         alignItems: 'center',
@@ -328,7 +330,9 @@ const styles = StyleSheet.create({
         backgroundColor: `${colors.error}20`,
     },
     modeBadgeText: {
-        fontSize: 12,
+        color: colors.text,
+        fontSize: 11,
+        fontWeight: '700',
     },
     frequency: {
         color: colors.textMuted,
@@ -338,18 +342,15 @@ const styles = StyleSheet.create({
     calendarButton: {
         width: 44,
         height: 44,
-        borderRadius: 12,
+        borderRadius: 8,
         backgroundColor: colors.surfaceHighlight,
         justifyContent: 'center',
         alignItems: 'center',
     },
-    calendarIcon: {
-        fontSize: 20,
-    },
     statusBadge: {
         paddingHorizontal: 16,
         paddingVertical: 10,
-        borderRadius: 12,
+        borderRadius: 8,
         marginBottom: 16,
     },
     statusText: {
@@ -362,7 +363,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 16,
         backgroundColor: colors.surfaceHighlight,
-        borderRadius: 12,
+        borderRadius: 8,
         padding: 14,
     },
     stat: {
@@ -392,22 +393,19 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         backgroundColor: colors.success,
         paddingVertical: 15,
-        borderRadius: 14,
+        borderRadius: 8,
         alignItems: 'center',
         justifyContent: 'center',
+        gap: 8,
         shadowColor: colors.success,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 4,
+        shadowOpacity: 0.16,
+        shadowRadius: 6,
+        elevation: 3,
     },
     completeButtonUrgent: {
         backgroundColor: colors.primary,
         shadowColor: colors.primary,
-    },
-    completeButtonIcon: {
-        fontSize: 18,
-        marginRight: 8,
     },
     completeButtonText: {
         color: '#fff',
@@ -418,18 +416,15 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         backgroundColor: colors.error,
         paddingVertical: 15,
-        borderRadius: 14,
+        borderRadius: 8,
         alignItems: 'center',
         justifyContent: 'center',
+        gap: 8,
         shadowColor: colors.error,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 4,
-    },
-    negativeButtonIcon: {
-        fontSize: 18,
-        marginRight: 8,
+        shadowOpacity: 0.16,
+        shadowRadius: 6,
+        elevation: 3,
     },
     negativeButtonText: {
         color: '#fff',

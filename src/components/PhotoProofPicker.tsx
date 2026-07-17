@@ -19,12 +19,14 @@ interface PhotoProofPickerProps {
     photoUri: string | null;
     onPhotoSelected: (uri: string | null) => void;
     disabled?: boolean;
+    helperText?: string;
 }
 
 export default function PhotoProofPicker({
     photoUri,
     onPhotoSelected,
     disabled = false,
+    helperText = 'Add a photo as proof of your failure confession',
 }: PhotoProofPickerProps) {
     const [loading, setLoading] = useState(false);
     const [showOptions, setShowOptions] = useState(false);
@@ -49,8 +51,8 @@ export default function PhotoProofPicker({
                 safeHaptics();
                 onPhotoSelected(uri);
             }
-        } catch (error) {
-            console.error('Take photo error:', error);
+        } catch {
+            // Error already shown to user via permissions flow
         } finally {
             setLoading(false);
         }
@@ -65,8 +67,8 @@ export default function PhotoProofPicker({
                 safeHaptics();
                 onPhotoSelected(uri);
             }
-        } catch (error) {
-            console.error('Pick image error:', error);
+        } catch {
+            // Error already shown to user via permissions flow
         } finally {
             setLoading(false);
         }
@@ -94,7 +96,7 @@ export default function PhotoProofPicker({
                 📷 Proof Photo (Optional)
             </Text>
             <Text style={styles.sublabel}>
-                Add a photo as proof of your failure confession
+                {helperText}
             </Text>
 
             {photoUri ? (

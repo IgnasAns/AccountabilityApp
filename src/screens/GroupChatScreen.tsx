@@ -17,6 +17,12 @@ import { useMessages } from '../hooks/useMessages';
 import { MessageWithProfile } from '../types/database';
 import { colors } from '../theme/colors';
 import { safeHaptics } from '../utils/haptics';
+import { sanitizeText } from '../utils/sanitize';
+import { rateLimiters } from '../utils/rateLimiter';
+import { CHAT_MESSAGE_MAX_LENGTH } from '../constants';
+import { SkeletonMessage } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
+import AppIcon from '../components/AppIcon';
 
 type RootStackParamList = {
     GroupChat: { groupId: string; groupName: string };
@@ -35,7 +41,7 @@ export default function GroupChatScreen({ navigation, route }: Props) {
     // Set navigation title
     useEffect(() => {
         navigation.setOptions({
-            title: `💬 ${groupName}`,
+            title: groupName,
             headerStyle: {
                 backgroundColor: colors.surface,
             },
@@ -46,24 +52,30 @@ export default function GroupChatScreen({ navigation, route }: Props) {
     // Scroll to bottom when new messages arrive
     useEffect(() => {
         if (messages.length > 0) {
-            setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-            }, 100);
+            flatListRef.current?.scrollToEnd({ animated: true });
         }
     }, [messages.length]);
 
     const handleSend = async () => {
         if (!inputText.trim() || sending) return;
 
-        const text = inputText.trim();
+        // Rate limit check
+        if (!rateLimiters.sendMessage.canProceed()) {
+            safeHaptics('warning');
+            return;
+        }
+
+        // Sanitize input (defense in depth - hook also sanitizes)
+        const sanitized = sanitizeText(inputText.trim(), CHAT_MESSAGE_MAX_LENGTH);
+        if (!sanitized) return;
+
         setInputText('');
         safeHaptics('light');
 
         try {
-            await sendMessage(text);
-        } catch (error) {
-            console.error('Failed to send message:', error);
-            setInputText(text); // Restore text on failure
+            await sendMessage(sanitized);
+        } catch {
+            setInputText(sanitized); // Restore sanitized text on failure
         }
     };
 
@@ -162,8 +174,9 @@ export default function GroupChatScreen({ navigation, route }: Props) {
     if (loading) {
         return (
             <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={colors.primary} />
-                <Text style={styles.loadingText}>Loading messages...</Text>
+                {Array.from({ length: 6 }).map((_, i) => (
+                    <SkeletonMessage key={i} isOwn={i % 3 === 0} />
+                ))}
             </View>
         );
     }
@@ -185,13 +198,12 @@ export default function GroupChatScreen({ navigation, route }: Props) {
                     messages.length === 0 && styles.emptyList
                 ]}
                 ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyIcon}>💬</Text>
-                        <Text style={styles.emptyTitle}>No messages yet</Text>
-                        <Text style={styles.emptySubtitle}>
-                            Start the conversation! Motivate your group or throw some friendly trash talk.
-                        </Text>
-                    </View>
+                    <EmptyState
+                        emoji="💬"
+                        title="No messages yet"
+                        subtitle="Start the conversation! Motivate your group or throw some friendly trash talk."
+                        style={styles.emptyList}
+                    />
                 }
                 showsVerticalScrollIndicator={false}
             />
@@ -208,7 +220,7 @@ export default function GroupChatScreen({ navigation, route }: Props) {
                     placeholderTextColor={colors.textMuted}
                     style={styles.textInput}
                     multiline
-                    maxLength={500}
+                    maxLength={300}
                     editable={!sending}
                 />
                 <TouchableOpacity
@@ -222,7 +234,7 @@ export default function GroupChatScreen({ navigation, route }: Props) {
                     {sending ? (
                         <ActivityIndicator size="small" color="#fff" />
                     ) : (
-                        <Text style={styles.sendButtonText}>➤</Text>
+                        <AppIcon name="send" size={20} color="#fff" />
                     )}
                 </TouchableOpacity>
             </View>
@@ -239,7 +251,8 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.background,
         justifyContent: 'center',
-        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 16,
     },
     loadingText: {
         color: colors.textMuted,
@@ -383,9 +396,5 @@ const styles = StyleSheet.create({
     },
     sendButtonDisabled: {
         backgroundColor: colors.border,
-    },
-    sendButtonText: {
-        color: '#fff',
-        fontSize: 20,
     },
 });

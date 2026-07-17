@@ -45,22 +45,29 @@ export default function CompleteGoalModal({
     };
 
     const handleSubmit = async () => {
-        if (!goal || !photoUri) {
+        if (!goal) return;
+
+        if (goal.requires_proof && !photoUri) {
             StyledAlert.alert('Photo Required', 'You must take a photo as proof of completion.');
             return;
         }
 
         try {
             setLoading(true);
-            setUploadProgress('Uploading photo...');
 
-            // Upload photo first
-            const proofPhotoUrl = await uploadProofPhoto(photoUri, groupId);
+            let proofPhotoUrl: string | undefined;
 
-            setUploadProgress('Saving completion...');
+            // Upload photo if provided
+            if (photoUri) {
+                setUploadProgress('Uploading photo...');
+                proofPhotoUrl = await uploadProofPhoto(photoUri, groupId);
+                setUploadProgress('Saving completion...');
+            } else {
+                setUploadProgress('Saving completion...');
+            }
 
             // Submit completion with photo URL
-            await onSubmit(goal.id, proofPhotoUrl, notes.trim() || undefined);
+            await onSubmit(goal.id, proofPhotoUrl || '', notes.trim() || undefined);
 
             safeHaptics();
 
@@ -70,9 +77,8 @@ export default function CompleteGoalModal({
             setUploadProgress('');
 
             onClose();
-        } catch (error: any) {
-            console.error('Complete goal error:', error);
-            StyledAlert.alert('Error', error.message || 'Failed to complete goal');
+        } catch (error: unknown) {
+            StyledAlert.alert('Error', (error instanceof Error ? error.message : "An error occurred") || 'Failed to complete goal');
         } finally {
             setLoading(false);
             setUploadProgress('');
@@ -121,18 +127,21 @@ export default function CompleteGoalModal({
                         </View>
 
                         {/* Photo Requirement Notice */}
-                        <View style={styles.requirementBadge}>
-                            <Text style={styles.requirementIcon}>📸</Text>
-                            <Text style={styles.requirementText}>
-                                Photo proof is required to mark this goal complete
-                            </Text>
-                        </View>
+                        {goal.requires_proof && (
+                            <View style={styles.requirementBadge}>
+                                <Text style={styles.requirementIcon}>📸</Text>
+                                <Text style={styles.requirementText}>
+                                    Photo proof is required to mark this goal complete
+                                </Text>
+                            </View>
+                        )}
 
                         {/* Photo Picker */}
                         <PhotoProofPicker
                             photoUri={photoUri}
                             onPhotoSelected={setPhotoUri}
                             disabled={loading}
+                            helperText="Add a photo as proof of your completion"
                         />
 
                         {/* Notes */}
@@ -161,10 +170,10 @@ export default function CompleteGoalModal({
                             </TouchableOpacity>
                             <TouchableOpacity
                                 onPress={handleSubmit}
-                                disabled={loading || !photoUri}
+                                disabled={loading || (goal.requires_proof && !photoUri)}
                                 style={[
                                     styles.submitButton,
-                                    (!photoUri || loading) && styles.disabledButton,
+                                    ((goal.requires_proof && !photoUri) || loading) && styles.disabledButton,
                                 ]}
                             >
                                 {loading ? (
@@ -176,13 +185,13 @@ export default function CompleteGoalModal({
                                     </View>
                                 ) : (
                                     <Text style={styles.submitButtonText}>
-                                        {photoUri ? '✓ Complete with Photo' : '📸 Add Photo First'}
+                                        {goal.requires_proof ? (photoUri ? '✓ Complete with Photo' : '📸 Add Photo First') : '✓ Complete Goal'}
                                     </Text>
                                 )}
                             </TouchableOpacity>
                         </View>
 
-                        {!photoUri && (
+                        {goal.requires_proof && !photoUri && (
                             <Text style={styles.hintText}>
                                 Take or select a photo to enable completion
                             </Text>

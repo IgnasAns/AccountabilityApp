@@ -1,7 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { useAuth } from './useAuth';
+import { RealtimeChannel } from '@supabase/supabase-js';
 import { Message, MessageWithProfile, Profile } from '../types/database';
+import { sanitizeText } from '../utils/sanitize';
+import { MESSAGES_PAGE_SIZE, CHAT_MESSAGE_MAX_LENGTH } from '../constants';
 
 export function useMessages(groupId: string) {
     const { user } = useAuth();
@@ -9,39 +12,48 @@ export function useMessages(groupId: string) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [sending, setSending] = useState(false);
-    const subscriptionRef = useRef<any>(null);
+    const [hasMore, setHasMore] = useState(true);
+    const subscriptionRef = useRef<RealtimeChannel | null>(null);
 
-    // Fetch messages
-    const fetchMessages = useCallback(async () => {
+    // Fetch messages with pagination
+    const fetchMessages = useCallback(async (before?: string) => {
         if (!user || !groupId) return;
-
-        // Guest mode support
-        if (user.id === 'guest_user_id') {
-            setLoading(false);
-            setMessages([]);
-            return;
-        }
 
         try {
             setLoading(true);
             setError(null);
 
-            const { data, error: fetchError } = await supabase
+            let query = supabase
                 .from('messages')
                 .select(`
                     *,
                     user:profiles!messages_user_id_fkey(*)
                 `)
                 .eq('group_id', groupId)
-                .order('created_at', { ascending: true })
-                .limit(100);
+                .order('created_at', { ascending: false })
+                .limit(MESSAGES_PAGE_SIZE);
+
+            if (before) {
+                query = query.lt('created_at', before);
+            }
+
+            const { data, error: fetchError } = await query;
 
             if (fetchError) throw fetchError;
 
-            setMessages((data || []) as MessageWithProfile[]);
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error fetching messages:', err);
+            const newMessages = (data || []) as MessageWithProfile[];
+            // Reverse to chronological order
+            newMessages.reverse();
+
+            setHasMore(newMessages.length >= MESSAGES_PAGE_SIZE);
+
+            if (before) {
+                setMessages((prev) => [...newMessages, ...prev]);
+            } else {
+                setMessages(newMessages);
+            }
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
         } finally {
             setLoading(false);
         }
@@ -49,7 +61,7 @@ export function useMessages(groupId: string) {
 
     // Subscribe to real-time updates
     useEffect(() => {
-        if (!user || !groupId || user.id === 'guest_user_id') return;
+        if (!user || !groupId) return;
 
         fetchMessages();
 
@@ -107,6 +119,10 @@ export function useMessages(groupId: string) {
     async function sendMessage(content: string, imageUrl?: string) {
         if (!user || !content.trim()) return;
 
+        // Sanitize the message content
+        const sanitizedContent = sanitizeText(content, CHAT_MESSAGE_MAX_LENGTH);
+        if (!sanitizedContent) return;
+
         try {
             setSending(true);
 
@@ -115,14 +131,14 @@ export function useMessages(groupId: string) {
                 .insert({
                     group_id: groupId,
                     user_id: user.id,
-                    content: content.trim(),
+                    content: sanitizedContent,
                     message_type: imageUrl ? 'image' : 'text',
                     image_url: imageUrl || null,
                 });
 
             if (insertError) throw insertError;
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
             throw err;
         } finally {
             setSending(false);
@@ -141,8 +157,8 @@ export function useMessages(groupId: string) {
                 .eq('user_id', user.id);
 
             if (deleteError) throw deleteError;
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
             throw err;
         }
     }
@@ -152,8 +168,14 @@ export function useMessages(groupId: string) {
         loading,
         error,
         sending,
+        hasMore,
         sendMessage,
         deleteMessage,
-        refetch: fetchMessages,
+        refetch: () => fetchMessages(),
+        loadMore: () => {
+            if (messages.length > 0) {
+                return fetchMessages(messages[0].created_at);
+            }
+        },
     };
 }

@@ -1,12 +1,16 @@
 export const colors = {
-    primary: '#3b82f6', // Bright Blue 500: High visibility
-    background: '#282c34', // Steel Blue-Grey: Retaining the comfortable brightness
-    surface: '#21252b', // Darker Card: Increases separation from background
-    surfaceHighlight: '#3e4451', // Lighter hover
-    text: '#ffffff', // Pure White: Maximum readable contrast
-    textMuted: '#9da5b4', // Bright Grey
-    border: '#4b5263', // Distinct borders
-    success: '#4ade80', // Vibrant Green
-    error: '#f87171', // Vibrant Red
-    warning: '#fbbf24', // Vibrant Amber
+    primary: '#D94B3D',
+    primaryMuted: '#351D1A',
+    background: '#0F1110',
+    surface: '#181B1A',
+    surfaceHighlight: '#232725',
+    elevated: '#202321',
+    text: '#FAFAF7',
+    textMuted: '#AEB7B2',
+    textSubtle: '#74807A',
+    border: '#303633',
+    success: '#31C48D',
+    error: '#FF4D67',
+    warning: '#F5B84B',
+    accent: '#52C7EA',
 };

@@ -4,251 +4,244 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    KeyboardAvoidingView,
-    Platform,
+    ScrollView,
     ActivityIndicator,
     StyleSheet,
-    Image,
-    ScrollView,
+    Platform,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
 import { useGroups } from '../hooks/useGroups';
-import { useAuth } from '../hooks/useAuth';
-import { StyledAlert } from '../components/StyledAlert';
-import InviteCodeModal from '../components/InviteCodeModal';
 import { colors } from '../theme/colors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyledAlert } from '../components/StyledAlert';
 import { sanitizeName, sanitizeText, sanitizeNumber } from '../utils/sanitize';
-
-// Declare window for web platform
-declare const window: { alert: (message: string) => void } | undefined;
-
-type CreateGroupParams = {
-    initialName?: string;
-    initialDescription?: string;
-    initialPenalty?: string;
-};
+import { safeHaptics } from '../utils/haptics';
+import { rateLimiters } from '../utils/rateLimiter';
+import AppIcon from '../components/AppIcon';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
-    route: RouteProp<{ params: CreateGroupParams }, 'params'>;
+    route?: {
+        params?: {
+            initialName?: string;
+            initialDescription?: string;
+            initialPenalty?: string;
+        };
+    };
 }
 
 export default function CreateGroupScreen({ navigation, route }: Props) {
-    const { createGroup, updateGroup } = useGroups();
-    const { user } = useAuth(); // Import user to check for guest
+    const { createGroup } = useGroups();
     const insets = useSafeAreaInsets();
-
-    // Initialize from params if available
-    const { initialName, initialDescription, initialPenalty } = route.params || {};
-
-    const [name, setName] = useState(initialName || '');
-    const [description, setDescription] = useState(initialDescription || '');
-    const [penalty, setPenalty] = useState(initialPenalty || '1');
+    const [name, setName] = useState(route?.params?.initialName || '');
+    const [description, setDescription] = useState(route?.params?.initialDescription || '');
+    const [penaltyAmount, setPenaltyAmount] = useState(route?.params?.initialPenalty || '5');
     const [loading, setLoading] = useState(false);
+    const [errors, setErrors] = useState<{ name?: string; penalty?: string }>({});
 
-    // For invite code modal
-    const [showInviteModal, setShowInviteModal] = useState(false);
-    const [createdInviteCode, setCreatedInviteCode] = useState('');
-    const [createdGroupName, setCreatedGroupName] = useState('');
+    React.useEffect(() => {
+        const params = route?.params;
+        if (!params) return;
 
-    const showAlert = (title: string, message: string, onOk?: () => void) => {
-        if (Platform.OS === 'web') {
-            window?.alert(`${title}\n\n${message}`);
-            onOk?.();
-        } else {
-            StyledAlert.alert(title, message, [{ text: 'OK', onPress: onOk }]);
+        if (params.initialName !== undefined) setName(params.initialName);
+        if (params.initialDescription !== undefined) setDescription(params.initialDescription);
+        if (params.initialPenalty !== undefined) setPenaltyAmount(params.initialPenalty);
+    }, [route?.params?.initialName, route?.params?.initialDescription, route?.params?.initialPenalty]);
+
+    const validateForm = (): boolean => {
+        const newErrors: typeof errors = {};
+
+        const sanitizedName = sanitizeName(name, 100);
+        if (!sanitizedName || sanitizedName.length < 3) {
+            newErrors.name = 'Group name must be at least 3 characters';
         }
-    };
 
-    const [imageUrl, setImageUrl] = useState<string | null>(null);
-
-    const handlePickImage = async () => {
-        try {
-            setLoading(true);
-            const { pickImage } = await import('../services/photoService');
-            const uri = await pickImage();
-            if (uri) {
-                // In a real app, you would upload this to Supabase Storage first.
-                // For now, we'll store the URI (which might only be local).
-                // To keep it simple, I'll explain this to the user later.
-                setImageUrl(uri);
-            }
-        } catch (error) {
-            console.error('Pick image error:', error);
-        } finally {
-            setLoading(false);
+        const rawPenalty = Number.parseFloat(penaltyAmount);
+        if (!Number.isFinite(rawPenalty) || rawPenalty <= 0) {
+            newErrors.penalty = 'Penalty must be greater than 0';
         }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
     };
 
     const handleCreate = async () => {
-        if (user?.id === 'guest_user_id') {
-            showAlert('Guest Mode', 'You must sign up to create groups.');
+        if (!validateForm()) {
+            safeHaptics('warning');
             return;
         }
 
-        if (!name.trim()) {
-            showAlert('Error', 'Please enter a group name');
-            return;
-        }
-
-        const penaltyAmount = parseFloat(penalty);
-        if (isNaN(penaltyAmount) || penaltyAmount <= 0) {
-            showAlert('Error', 'Please enter a valid penalty amount');
+        // Rate limit check
+        if (!rateLimiters.general.canProceed('createGroup')) {
+            StyledAlert.alert('Slow Down', 'Please wait before creating another group.');
             return;
         }
 
         try {
             setLoading(true);
+            safeHaptics('light');
 
-            // Add timeout to prevent infinite loading
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Request timed out. Please run the SQL setup scripts in your Supabase Dashboard.')), 30000)
+            const sanitizedName = sanitizeName(name, 100);
+            const sanitizedDescription = description ? sanitizeText(description, 500) : undefined;
+            const penalty = sanitizeNumber(penaltyAmount, 0.01, 10000, 5);
+
+            const group = await createGroup(
+                sanitizedName,
+                sanitizedDescription || undefined,
+                penalty
             );
 
-            // 1. Create the group first with sanitized inputs
-            const sanitizedName = sanitizeName(name, 100);
-            const sanitizedDescription = sanitizeText(description, 500) || undefined;
-            const sanitizedPenalty = sanitizeNumber(penaltyAmount, 0.01, 1000, 1);
+            safeHaptics('success');
 
-            const group = await Promise.race([
-                createGroup(sanitizedName, sanitizedDescription, sanitizedPenalty),
-                timeoutPromise
-            ]) as any;
-
-            // 2. If an image was selected, upload it and update group
-            if (imageUrl) {
-                try {
-                    const { uploadGroupCover } = await import('../services/photoService');
-
-                    const publicUrl = await uploadGroupCover(imageUrl, group.id);
-                    await updateGroup(group.id, { image_url: publicUrl });
-                } catch (uploadError) {
-                    console.error('Image upload failed but group was created:', uploadError);
-                    // We don't fail the whole process if only image upload fails
-                }
-            }
-
-            // Store the invite code and show the modal
-            setCreatedInviteCode(group.invite_code);
-            setCreatedGroupName(name.trim());
-            setShowInviteModal(true);
-        } catch (error: any) {
-            console.error('Create group error:', error);
-            if (error.message?.includes('timed out')) {
-                showAlert('Setup Required', 'Database not configured.\n\nRun "supabase/full_setup.sql" in your Supabase Dashboard SQL Editor.');
-            } else if (error.message?.includes('403') || error.message?.includes('permission')) {
-                showAlert('Permission Error', 'You do not have permission to create a group.\n\nRun "supabase/full_setup.sql" in Supabase SQL Editor to fix RLS policies.');
-            } else {
-                showAlert('Error', error.message || 'Failed to create group');
-            }
+            // Navigate to the new group
+            navigation.replace('GroupDetail', { groupId: group.id });
+        } catch (error: unknown) {
+            safeHaptics('error');
+            StyledAlert.alert('Error', (error instanceof Error ? error.message : "Failed to create group"));
         } finally {
             setLoading(false);
         }
     };
 
+    const suggestedAmounts = [1, 2, 5, 10, 20];
+
     return (
-        <View style={styles.container}>
-            <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                style={styles.keyboardView}
+        <View style={[styles.container, { paddingTop: insets.top }]}>
+            <ScrollView
+                style={styles.scrollView}
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
             >
-                <ScrollView
-                    style={styles.scrollView}
-                    contentContainerStyle={styles.content}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                >
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <Text style={styles.title}>
-                            Create New Group
-                        </Text>
-                        <Text style={styles.subtitle}>
-                            Start a new accountability group and invite friends
-                        </Text>
+                {/* Header */}
+                <View style={styles.header}>
+                    <View style={styles.headerIcon}>
+                        <AppIcon name="target" size={34} color={colors.primary} />
                     </View>
+                    <Text style={styles.title}>Create a Group</Text>
+                    <Text style={styles.subtitle}>
+                        Set up your accountability pact with friends
+                    </Text>
+                </View>
 
-                    {/* Image Placeholder/Picker */}
-                    <TouchableOpacity
-                        style={styles.imagePicker}
-                        onPress={handlePickImage}
-                        disabled={loading}
-                    >
-                        {imageUrl ? (
-                            <Image source={{ uri: imageUrl }} style={styles.groupImage} />
-                        ) : (
-                            <View style={styles.imagePlaceholder}>
-                                <Text style={styles.imagePlaceholderIcon}>📸</Text>
-                                <Text style={styles.imagePlaceholderText}>Add Group Image</Text>
-                            </View>
-                        )}
-                        {imageUrl && (
+                {/* Group Name */}
+                <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Group Name *</Text>
+                    <TextInput
+                        value={name}
+                        onChangeText={(text) => {
+                            setName(text);
+                            if (errors.name) setErrors({ ...errors, name: undefined });
+                        }}
+                        placeholder="e.g., Gym Squad"
+                        placeholderTextColor={colors.textMuted}
+                        style={[styles.input, errors.name ? styles.inputError : undefined]}
+                        editable={!loading}
+                        maxLength={100}
+                    />
+                    {errors.name && (
+                        <Text style={styles.errorText}>{errors.name}</Text>
+                    )}
+                </View>
+
+                {/* Description */}
+                <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Description (optional)</Text>
+                    <TextInput
+                        value={description}
+                        onChangeText={setDescription}
+                        placeholder="What's the pact about? What are the rules?"
+                        placeholderTextColor={colors.textMuted}
+                        multiline
+                        numberOfLines={3}
+                        style={[styles.input, styles.multilineInput]}
+                        editable={!loading}
+                        maxLength={500}
+                    />
+                    <Text style={styles.charCount}>{description.length}/500</Text>
+                </View>
+
+                {/* Penalty Amount */}
+                <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Penalty Amount (€) *</Text>
+                    <Text style={styles.helperText}>
+                        How much do members pay when they fail?
+                    </Text>
+
+                    {/* Quick Select Buttons */}
+                    <View style={styles.quickSelectRow}>
+                        {suggestedAmounts.map((amount) => (
                             <TouchableOpacity
-                                style={styles.changeImageBadge}
-                                onPress={handlePickImage}
+                                key={amount}
+                                style={[
+                                    styles.quickSelectButton,
+                                    penaltyAmount === amount.toString() && styles.quickSelectActive,
+                                ]}
+                                onPress={() => {
+                                    setPenaltyAmount(amount.toString());
+                                    safeHaptics('selection');
+                                }}
                             >
-                                <Text style={styles.changeImageText}>Change</Text>
+                                <Text
+                                    style={[
+                                        styles.quickSelectText,
+                                        penaltyAmount === amount.toString() && styles.quickSelectTextActive,
+                                    ]}
+                                >
+                                    €{amount}
+                                </Text>
                             </TouchableOpacity>
-                        )}
-                    </TouchableOpacity>
+                        ))}
+                    </View>
 
-                    {/* Form */}
-                    <View style={styles.form}>
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Group Name *</Text>
-                            <TextInput
-                                value={name}
-                                onChangeText={setName}
-                                placeholder="e.g., No Smoking Club"
-                                placeholderTextColor={colors.textMuted}
-                                style={styles.input}
-                                editable={!loading}
-                            />
+                    {/* Custom Input */}
+                    <View style={styles.penaltyInputContainer}>
+                        <Text style={styles.currencySymbol}>€</Text>
+                        <TextInput
+                            value={penaltyAmount}
+                            onChangeText={(text) => {
+                                setPenaltyAmount(text);
+                                if (errors.penalty) setErrors({ ...errors, penalty: undefined });
+                            }}
+                            placeholder="5.00"
+                            placeholderTextColor={colors.textMuted}
+                            keyboardType="decimal-pad"
+                            style={styles.penaltyInput}
+                            editable={!loading}
+                        />
+                    </View>
+                    {errors.penalty && (
+                        <Text style={styles.errorText}>{errors.penalty}</Text>
+                    )}
+                </View>
+
+                {/* Preview Card */}
+                <View style={styles.previewCard}>
+                    <Text style={styles.previewLabel}>Preview</Text>
+                    <View style={styles.previewContent}>
+                        <View style={styles.previewIcon}>
+                            <AppIcon name="target" size={28} color={colors.primary} />
                         </View>
-
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>Description (optional)</Text>
-                            <TextInput
-                                value={description}
-                                onChangeText={setDescription}
-                                placeholder="What's this group about?"
-                                placeholderTextColor={colors.textMuted}
-                                multiline
-                                numberOfLines={3}
-                                style={[styles.input, styles.multilineInput]}
-                                editable={!loading}
-                            />
-                        </View>
-
-                        <View style={styles.inputGroup}>
-                            <Text style={styles.label}>
-                                Default Penalty Amount (€) *
+                        <View style={styles.previewInfo}>
+                            <Text style={styles.previewName}>
+                                {sanitizeName(name, 30) || 'Your Group Name'}
                             </Text>
-                            <TextInput
-                                value={penalty}
-                                onChangeText={setPenalty}
-                                placeholder="1.00"
-                                placeholderTextColor={colors.textMuted}
-                                keyboardType="decimal-pad"
-                                style={styles.input}
-                                editable={!loading}
-                            />
-                            <Text style={styles.helperText}>
-                                This amount is charged to each group member when someone fails
+                            <Text style={styles.previewPenalty}>
+                                €{sanitizeNumber(penaltyAmount, 0.01, 10000, 5).toFixed(2)} penalty per failure
                             </Text>
                         </View>
                     </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
+                </View>
 
-            {/* Create Button - Fixed at bottom */}
-            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                {/* Create Button */}
                 <TouchableOpacity
                     onPress={handleCreate}
                     disabled={loading}
-                    style={[styles.createButton, loading && styles.disabledButton]}
+                    style={[
+                        styles.createButton,
+                        loading && styles.disabledButton,
+                    ]}
+                    activeOpacity={0.8}
                 >
                     {loading ? (
                         <ActivityIndicator color="#fff" />
@@ -256,18 +249,18 @@ export default function CreateGroupScreen({ navigation, route }: Props) {
                         <Text style={styles.createButtonText}>Create Group</Text>
                     )}
                 </TouchableOpacity>
-            </View>
 
-            {/* Invite Code Modal */}
-            <InviteCodeModal
-                visible={showInviteModal}
-                inviteCode={createdInviteCode}
-                groupName={createdGroupName}
-                onClose={() => {
-                    setShowInviteModal(false);
-                    navigation.goBack();
-                }}
-            />
+                {/* Info Box */}
+                <View style={styles.infoBox}>
+                    <View style={styles.infoIcon}>
+                        <AppIcon name="lightbulb-on-outline" size={20} color={colors.primary} />
+                    </View>
+                    <Text style={styles.infoText}>
+                        After creating, you'll get an invite code to share with friends.
+                        They can join using the code.
+                    </Text>
+                </View>
+            </ScrollView>
         </View>
     );
 }
@@ -277,87 +270,175 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.background,
     },
-    keyboardView: {
-        flex: 1,
-    },
     scrollView: {
         flex: 1,
     },
     content: {
-        padding: 24,
-        paddingBottom: 24,
+        paddingHorizontal: 24,
+        paddingTop: 20,
+        paddingBottom: 40,
     },
     header: {
+        alignItems: 'center',
         marginBottom: 32,
     },
+    headerIcon: {
+        width: 64,
+        height: 64,
+        borderRadius: 14,
+        backgroundColor: colors.primaryMuted,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 16,
+    },
     title: {
+        fontSize: 28,
+        fontWeight: '800',
         color: colors.text,
-        fontSize: 24,
-        fontWeight: 'bold',
+        marginBottom: 8,
     },
     subtitle: {
+        fontSize: 16,
         color: colors.textMuted,
-        marginTop: 8,
-    },
-    form: {
-        gap: 16,
+        textAlign: 'center',
     },
     inputGroup: {
-        marginBottom: 4,
+        marginBottom: 24,
     },
     label: {
+        color: colors.text,
+        fontSize: 15,
+        fontWeight: '700',
+        marginBottom: 8,
+    },
+    helperText: {
         color: colors.textMuted,
         fontSize: 13,
-        fontWeight: '700',
-        textTransform: 'uppercase',
-        letterSpacing: 1,
-        marginBottom: 8,
-        marginLeft: 4,
+        marginBottom: 12,
     },
     input: {
-        backgroundColor: colors.surfaceHighlight, // Premium look
+        backgroundColor: colors.surface,
         color: colors.text,
         paddingHorizontal: 16,
-        paddingVertical: 16,
-        borderRadius: 16, // Consistent radius
+        paddingVertical: 14,
+        borderRadius: 10,
         borderWidth: 1,
         borderColor: colors.border,
         fontSize: 16,
     },
-    multilineInput: {
-        textAlignVertical: 'top',
-        minHeight: 80,
+    inputError: {
+        borderColor: colors.error,
     },
-    helperText: {
-        color: colors.textMuted,
-        opacity: 0.7,
+    errorText: {
+        color: colors.error,
         fontSize: 12,
-        marginTop: 8,
-        marginLeft: 4,
+        marginTop: 6,
     },
-    footer: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: colors.background,
-        paddingHorizontal: 24,
-        paddingTop: 16,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
-        // Shadow for depth
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-        elevation: 8,
+    multilineInput: {
+        minHeight: 80,
+        textAlignVertical: 'top',
+    },
+    charCount: {
+        color: colors.textMuted,
+        fontSize: 12,
+        textAlign: 'right',
+        marginTop: 4,
+    },
+    quickSelectRow: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 12,
+    },
+    quickSelectButton: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: 8,
+        backgroundColor: colors.surface,
+        borderWidth: 2,
+        borderColor: colors.border,
+        alignItems: 'center',
+    },
+    quickSelectActive: {
+        borderColor: colors.primary,
+        backgroundColor: colors.primary + '15',
+    },
+    quickSelectText: {
+        color: colors.textMuted,
+        fontWeight: '600',
+        fontSize: 14,
+    },
+    quickSelectTextActive: {
+        color: colors.primary,
+    },
+    penaltyInputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.border,
+        paddingHorizontal: 16,
+    },
+    currencySymbol: {
+        color: colors.textMuted,
+        fontSize: 18,
+        fontWeight: '600',
+        marginRight: 8,
+    },
+    penaltyInput: {
+        flex: 1,
+        color: colors.text,
+        paddingVertical: 14,
+        fontSize: 18,
+        fontWeight: '600',
+    },
+    previewCard: {
+        backgroundColor: colors.surface,
+        borderRadius: 8,
+        padding: 20,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    previewLabel: {
+        color: colors.textMuted,
+        fontSize: 12,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 12,
+    },
+    previewContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    previewIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 8,
+        backgroundColor: colors.primaryMuted,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 16,
+    },
+    previewInfo: {
+        flex: 1,
+    },
+    previewName: {
+        color: colors.text,
+        fontSize: 18,
+        fontWeight: '700',
+        marginBottom: 4,
+    },
+    previewPenalty: {
+        color: colors.textMuted,
+        fontSize: 14,
     },
     createButton: {
         backgroundColor: colors.primary,
         paddingVertical: 16,
-        borderRadius: 16, // Consistent radius
+        borderRadius: 10,
         alignItems: 'center',
-        // Premium shadow
         shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
@@ -365,53 +446,29 @@ const styles = StyleSheet.create({
         elevation: 4,
     },
     disabledButton: {
-        opacity: 0.7,
+        opacity: 0.6,
     },
     createButtonText: {
         color: '#ffffff',
-        fontWeight: '800', // Consistent weight
+        fontWeight: '800',
         fontSize: 18,
     },
-    imagePicker: {
-        marginBottom: 32,
-        height: 200,
-        borderRadius: 24,
-        overflow: 'hidden',
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.border,
+    infoBox: {
+        flexDirection: 'row',
+        backgroundColor: colors.primary + '10',
+        borderRadius: 8,
+        padding: 16,
+        marginTop: 24,
+        alignItems: 'flex-start',
     },
-    imagePlaceholder: {
+    infoIcon: {
+        marginRight: 12,
+        marginTop: 1,
+    },
+    infoText: {
         flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: colors.surfaceHighlight + '10',
-    },
-    imagePlaceholderIcon: {
-        fontSize: 48,
-        marginBottom: 12,
-    },
-    imagePlaceholderText: {
-        color: colors.text,
-        fontSize: 16,
-        fontWeight: '700',
-    },
-    groupImage: {
-        width: '100%',
-        height: '100%',
-    },
-    changeImageBadge: {
-        position: 'absolute',
-        bottom: 16,
-        right: 16,
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 12,
-    },
-    changeImageText: {
-        color: '#fff',
+        color: colors.textMuted,
         fontSize: 14,
-        fontWeight: '700',
+        lineHeight: 20,
     },
 });

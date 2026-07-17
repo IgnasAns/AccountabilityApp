@@ -14,6 +14,7 @@ import CompleteGoalModal from './CompleteGoalModal';
 import { StyledAlert } from './StyledAlert';
 import { GoalWithCompletions } from '../types/database';
 import { colors } from '../theme/colors';
+import AppIcon from './AppIcon';
 
 interface Props {
     groupId: string;
@@ -62,9 +63,9 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
                 targetPerWeek,
             });
             const modeText = goalMode === 'positive' ? 'Goal' : 'Tracker';
-            StyledAlert.alert(`${modeText} Created! 🎯`, `"${name}" has been added to the group.`);
-        } catch (err: any) {
-            StyledAlert.alert('Error', err.message);
+            StyledAlert.alert(`${modeText} Created`, `"${name}" has been added to the group.`);
+        } catch (err: unknown) {
+            StyledAlert.alert('Error', (err instanceof Error ? err.message : "An error occurred"));
             throw err;
         }
     };
@@ -83,9 +84,9 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
         try {
             await logCompletion(goalId, proofPhotoUrl, notes);
             const goal = goals.find(g => g.id === goalId);
-            StyledAlert.alert('Completed! ✅', `Great job completing "${goal?.name}"!\n\n📸 Photo proof saved.`);
-        } catch (err: any) {
-            StyledAlert.alert('Error', err.message);
+            StyledAlert.alert('Completed', `Great job completing "${goal?.name}".`);
+        } catch (err: unknown) {
+            StyledAlert.alert('Error', (err instanceof Error ? err.message : "An error occurred"));
             throw err;
         }
     };
@@ -104,11 +105,11 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
             await logNegativeOccurrence(goalId, count);
             const goal = goals.find(g => g.id === goalId);
             StyledAlert.alert(
-                'Logged 📝',
+                'Logged',
                 `Slip-up recorded for "${goal?.name}".\n\n€${goal?.penalty_amount.toFixed(2)} penalty applied.`
             );
-        } catch (err: any) {
-            StyledAlert.alert('Error', err.message);
+        } catch (err: unknown) {
+            StyledAlert.alert('Error', (err instanceof Error ? err.message : "An error occurred"));
         }
     };
 
@@ -137,7 +138,10 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
             {/* Section Header */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.title}>📊 Tasks & Tracking</Text>
+                    <View style={styles.titleRow}>
+                        <AppIcon name="format-list-checks" size={22} color={colors.primary} />
+                        <Text style={styles.title}>Tasks & Tracking</Text>
+                    </View>
                     <Text style={styles.subtitle}>
                         Goals & habit tracking with penalties
                     </Text>
@@ -146,14 +150,17 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
                     style={styles.addButton}
                     onPress={() => setShowCreateModal(true)}
                 >
-                    <Text style={styles.addButtonText}>+ Add</Text>
+                    <AppIcon name="plus" size={18} color="#fff" />
+                    <Text style={styles.addButtonText}>Add</Text>
                 </TouchableOpacity>
             </View>
 
             {/* Goals List */}
             {goals.length === 0 ? (
                 <View style={styles.emptyState}>
-                    <Text style={styles.emptyIcon}>🎯</Text>
+                    <View style={styles.emptyIcon}>
+                        <AppIcon name="target" size={34} color={colors.primary} />
+                    </View>
                     <Text style={styles.emptyTitle}>No goals yet</Text>
                     <Text style={styles.emptySubtitle}>
                         Create a goal like "Gym every 3 days" to start tracking
@@ -226,7 +233,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         padding: 24,
         backgroundColor: colors.surface,
-        borderRadius: 16,
+        borderRadius: 8,
     },
     loadingText: {
         color: colors.textMuted,
@@ -236,7 +243,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 24,
         backgroundColor: colors.surface,
-        borderRadius: 16,
+        borderRadius: 8,
     },
     errorText: {
         color: colors.error,
@@ -263,16 +270,24 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontWeight: 'bold',
     },
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
     subtitle: {
         color: colors.textMuted,
         fontSize: 13,
         marginTop: 2,
     },
     addButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
         backgroundColor: colors.primary,
         paddingHorizontal: 16,
         paddingVertical: 8,
-        borderRadius: 20,
+        borderRadius: 8,
     },
     addButtonText: {
         color: '#fff',
@@ -285,13 +300,18 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 40,
         backgroundColor: colors.surface,
-        borderRadius: 20,
+        borderRadius: 8,
         borderWidth: 2,
         borderColor: colors.border,
         borderStyle: 'dashed',
     },
     emptyIcon: {
-        fontSize: 48,
+        width: 64,
+        height: 64,
+        borderRadius: 14,
+        backgroundColor: colors.primaryMuted,
+        justifyContent: 'center',
+        alignItems: 'center',
         marginBottom: 16,
     },
     emptyTitle: {
@@ -310,7 +330,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.primary,
         paddingHorizontal: 24,
         paddingVertical: 12,
-        borderRadius: 12,
+        borderRadius: 8,
     },
     createFirstButtonText: {
         color: '#fff',

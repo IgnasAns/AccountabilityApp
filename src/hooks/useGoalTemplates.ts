@@ -51,8 +51,8 @@ export function useGoalTemplates() {
             }
 
             setTemplates((data || []) as GoalTemplate[]);
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
             // Fallback to defaults on error
             setTemplates(DEFAULT_TEMPLATES);
         } finally {

@@ -17,6 +17,7 @@ import { useAuth } from '../hooks/useAuth';
 import { StyledAlert } from '../components/StyledAlert';
 import { colors } from '../theme/colors';
 import { sanitizeInviteCode } from '../utils/sanitize';
+import AppIcon from '../components/AppIcon';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -28,27 +29,24 @@ export default function JoinGroupScreen({ navigation }: Props) {
     const insets = useSafeAreaInsets();
     const [inviteCode, setInviteCode] = useState('');
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const handleJoin = async () => {
-        if (user?.id === 'guest_user_id') {
-            StyledAlert.alert('Guest Mode', 'You must sign up to join groups.');
-            return;
-        }
-
         // Sanitize the invite code
         const code = sanitizeInviteCode(inviteCode);
         if (!code) {
-            StyledAlert.alert('Error', 'Please enter an invite code');
+            setError('Please enter an invite code');
             return;
         }
 
         if (code.length !== 8) {
-            StyledAlert.alert('Error', 'Invite code should be 8 characters');
+            setError('Invite code should be 8 characters');
             return;
         }
 
         try {
             setLoading(true);
+            setError(null);
             const result = await joinGroup(code);
 
             // Navigate directly to the new group
@@ -62,8 +60,8 @@ export default function JoinGroupScreen({ navigation }: Props) {
                     routes: [{ name: 'MainTabs' as any }],
                 });
             }
-        } catch (error: any) {
-            StyledAlert.alert('Error', error.message);
+        } catch (error: unknown) {
+            StyledAlert.alert('Error', (error instanceof Error ? error.message : "An error occurred"));
         } finally {
             setLoading(false);
         }
@@ -77,7 +75,7 @@ export default function JoinGroupScreen({ navigation }: Props) {
             >
                 <ScrollView
                     style={styles.scrollView}
-                    contentContainerStyle={styles.content}
+                    contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 16) + 96 }]}
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
@@ -96,14 +94,20 @@ export default function JoinGroupScreen({ navigation }: Props) {
                         <Text style={styles.label}>Invite Code</Text>
                         <TextInput
                             value={inviteCode}
-                            onChangeText={(text) => setInviteCode(text.toUpperCase())}
+                            onChangeText={(text) => {
+                                setInviteCode(text.toUpperCase());
+                                if (error) setError(null);
+                            }}
                             placeholder="ABC12345"
                             placeholderTextColor={colors.textMuted}
                             autoCapitalize="characters"
                             maxLength={8}
-                            style={styles.codeInput}
+                            style={[styles.codeInput, error ? styles.inputError : undefined]}
                             editable={!loading}
                         />
+                        {error && (
+                            <Text style={styles.errorText}>{error}</Text>
+                        )}
                         <Text style={styles.helperText}>
                             The code is case-insensitive
                         </Text>
@@ -112,7 +116,7 @@ export default function JoinGroupScreen({ navigation }: Props) {
                     {/* Visual explanation */}
                     <View style={styles.explanationCard}>
                         <View style={styles.explanationRow}>
-                            <Text style={styles.stepEmoji}>1️⃣</Text>
+                            <View style={styles.stepNumber}><Text style={styles.stepNumberText}>1</Text></View>
                             <View style={styles.stepTextContainer}>
                                 <Text style={styles.stepTitle}>Get the code</Text>
                                 <Text style={styles.stepDescription}>
@@ -121,7 +125,7 @@ export default function JoinGroupScreen({ navigation }: Props) {
                             </View>
                         </View>
                         <View style={styles.explanationRow}>
-                            <Text style={styles.stepEmoji}>2️⃣</Text>
+                            <View style={styles.stepNumber}><Text style={styles.stepNumberText}>2</Text></View>
                             <View style={styles.stepTextContainer}>
                                 <Text style={styles.stepTitle}>Enter it above</Text>
                                 <Text style={styles.stepDescription}>
@@ -130,7 +134,7 @@ export default function JoinGroupScreen({ navigation }: Props) {
                             </View>
                         </View>
                         <View style={styles.explanationRow}>
-                            <Text style={styles.stepEmoji}>3️⃣</Text>
+                            <View style={styles.stepNumber}><Text style={styles.stepNumberText}>3</Text></View>
                             <View style={styles.stepTextContainer}>
                                 <Text style={styles.stepTitle}>Start tracking</Text>
                                 <Text style={styles.stepDescription}>
@@ -146,16 +150,19 @@ export default function JoinGroupScreen({ navigation }: Props) {
             <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                 <TouchableOpacity
                     onPress={handleJoin}
-                    disabled={loading || inviteCode.length !== 8}
+                    disabled={loading}
                     style={[
                         styles.joinButton,
-                        (loading || inviteCode.length !== 8) && styles.disabledButton
+                        loading && styles.disabledButton
                     ]}
                 >
                     {loading ? (
                         <ActivityIndicator color="#fff" />
                     ) : (
-                        <Text style={styles.joinButtonText}>Join Group</Text>
+                        <>
+                            <AppIcon name="login-variant" size={20} color="#fff" />
+                            <Text style={styles.joinButtonText}>Join Group</Text>
+                        </>
                     )}
                 </TouchableOpacity>
             </View>
@@ -211,11 +218,20 @@ const styles = StyleSheet.create({
         fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
         paddingHorizontal: 32,
         paddingVertical: 24,
-        borderRadius: 16,
+        borderRadius: 10,
         borderWidth: 1,
         borderColor: colors.border,
         width: '100%',
         letterSpacing: 8,
+    },
+    inputError: {
+        borderColor: colors.error,
+    },
+    errorText: {
+        color: colors.error,
+        fontSize: 12,
+        marginTop: 10,
+        textAlign: 'center',
     },
     helperText: {
         color: colors.textMuted,
@@ -225,7 +241,7 @@ const styles = StyleSheet.create({
     },
     explanationCard: {
         backgroundColor: colors.surface,
-        borderRadius: 24, // Consistent card radius
+        borderRadius: 8,
         padding: 24,
         marginBottom: 32,
         borderWidth: 1,
@@ -236,9 +252,18 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         marginBottom: 20,
     },
-    stepEmoji: {
-        fontSize: 24,
+    stepNumber: {
+        width: 30,
+        height: 30,
+        borderRadius: 8,
+        backgroundColor: colors.primaryMuted,
+        justifyContent: 'center',
+        alignItems: 'center',
         marginRight: 16,
+    },
+    stepNumberText: {
+        color: colors.primary,
+        fontWeight: '800',
     },
     stepTextContainer: {
         flex: 1,
@@ -266,21 +291,24 @@ const styles = StyleSheet.create({
         // Shadow for depth
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
-        elevation: 8,
+        shadowOpacity: 0.12,
+        shadowRadius: 6,
+        elevation: 6,
     },
     joinButton: {
+        flexDirection: 'row',
+        gap: 8,
         backgroundColor: colors.primary,
         paddingVertical: 16,
-        borderRadius: 16, // Consistent radius
+        borderRadius: 10,
         alignItems: 'center',
+        justifyContent: 'center',
         // Premium shadow
         shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 4,
+        shadowOpacity: 0.18,
+        shadowRadius: 6,
+        elevation: 3,
     },
     disabledButton: {
         opacity: 0.6,

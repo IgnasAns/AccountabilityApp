@@ -56,6 +56,9 @@ export async function pickImage(): Promise<string | null> {
     return result.assets[0].uri;
 }
 
+// Max file size before compression (10MB)
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+
 // Compress image before upload
 async function compressImage(uri: string): Promise<{ uri: string; base64: string }> {
     const manipulated = await ImageManipulator.manipulateAsync(
@@ -80,6 +83,13 @@ export async function uploadProofPhoto(
     groupId: string
 ): Promise<string> {
     try {
+        // Validate file size before compression
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        if (blob.size > MAX_FILE_SIZE_BYTES) {
+            throw new Error(`Image is too large (${(blob.size / (1024 * 1024)).toFixed(1)}MB). Maximum size is 10MB.`);
+        }
+
         // Compress the image
         const { base64 } = await compressImage(imageUri);
 
@@ -106,7 +116,6 @@ export async function uploadProofPhoto(
             });
 
         if (error) {
-            console.error('Upload error:', error);
             throw new Error('Failed to upload photo: ' + error.message);
         }
 
@@ -117,7 +126,6 @@ export async function uploadProofPhoto(
 
         return urlData.publicUrl;
     } catch (error) {
-        console.error('Photo upload failed:', error);
         throw error;
     }
 }
@@ -128,6 +136,12 @@ export async function uploadGroupCover(
     groupId: string
 ): Promise<string> {
     try {
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        if (blob.size > MAX_FILE_SIZE_BYTES) {
+            throw new Error(`Image is too large (${(blob.size / (1024 * 1024)).toFixed(1)}MB). Maximum size is 10MB.`);
+        }
+
         const { base64 } = await compressImage(imageUri);
         if (!base64) throw new Error('Failed to process image');
 
@@ -151,7 +165,6 @@ export async function uploadGroupCover(
 
         return urlData.publicUrl;
     } catch (error) {
-        console.error('Group cover upload failed:', error);
         throw error;
     }
 }
@@ -161,6 +174,12 @@ export async function uploadAvatar(
     imageUri: string
 ): Promise<string> {
     try {
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        if (blob.size > MAX_FILE_SIZE_BYTES) {
+            throw new Error(`Image is too large (${(blob.size / (1024 * 1024)).toFixed(1)}MB). Maximum size is 10MB.`);
+        }
+
         const { base64 } = await compressImage(imageUri);
         if (!base64) throw new Error('Failed to process image');
 
@@ -184,7 +203,6 @@ export async function uploadAvatar(
 
         return urlData.publicUrl;
     } catch (error) {
-        console.error('Avatar upload failed:', error);
         throw error;
     }
 }

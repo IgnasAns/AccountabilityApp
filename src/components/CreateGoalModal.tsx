@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { colors } from '../theme/colors';
 import { safeHaptics } from '../utils/haptics';
+import { sanitizeName, sanitizeNumber, sanitizeText } from '../utils/sanitize';
 import GoalTemplatePicker from './GoalTemplatePicker';
 import { GoalTemplate } from '../types/database';
 
@@ -66,6 +67,31 @@ export default function CreateGoalModal({
     const [loading, setLoading] = useState(false);
     const [selectedFrequency, setSelectedFrequency] = useState(3); // Default to "Every 3 days"
     const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [errors, setErrors] = useState<{ name?: string; penalty?: string; custom?: string }>({});
+
+    const validateForm = (): boolean => {
+        const newErrors: typeof errors = {};
+        const sanitizedName = sanitizeName(name, 100);
+        if (!sanitizedName || sanitizedName.length < 2) {
+            newErrors.name = 'Task name must be at least 2 characters';
+        }
+
+        const rawPenalty = Number.parseFloat(penalty);
+        if (!Number.isFinite(rawPenalty) || rawPenalty <= 0) {
+            newErrors.penalty = 'Penalty must be greater than 0';
+        }
+
+        if (selectedFrequency === 5 && goalMode === 'positive') {
+            const perWeek = Number.parseInt(customPerWeek, 10);
+            const days = Number.parseInt(customDays, 10);
+            if ((!Number.isInteger(perWeek) || perWeek < 1 || perWeek > 7) && (!Number.isInteger(days) || days < 1 || days > 365)) {
+                newErrors.custom = 'Enter 1-7 times per week or every 1-365 days';
+            }
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
 
     // Handle template selection
     const handleTemplateSelect = (template: GoalTemplate) => {
@@ -116,7 +142,10 @@ export default function CreateGoalModal({
     };
 
     const handleSubmit = async () => {
-        if (!name.trim()) return;
+        if (!validateForm()) {
+            safeHaptics('warning');
+            return;
+        }
 
         try {
             setLoading(true);
@@ -128,30 +157,34 @@ export default function CreateGoalModal({
             if (selectedFrequency === 5) { // Custom
                 if (goalMode === 'positive') {
                     // Custom can be either X times per week or every X days
-                    finalPerWeek = parseInt(customPerWeek) || null;
-                    finalDays = parseInt(customDays) || 1;
+                    const perWeek = Number.parseInt(customPerWeek, 10);
+                    const days = Number.parseInt(customDays, 10);
+                    finalPerWeek = Number.isInteger(perWeek) && perWeek >= 1 && perWeek <= 7 ? perWeek : null;
+                    finalDays = Number.isInteger(days) && days >= 1 && days <= 365 ? days : 1;
                 } else {
                     finalDays = 1; // Negative goals are logged individually
                 }
             }
 
-            const penaltyAmount = parseFloat(penalty) || defaultPenalty;
+            const penaltyAmount = sanitizeNumber(penalty, 0.01, 10000, defaultPenalty);
+            const sanitizedName = sanitizeName(name, 100);
+            const sanitizedDescription = description.trim() ? sanitizeText(description, 500) : undefined;
 
             await onSubmit(
-                name.trim(),
+                sanitizedName,
                 selectedEmoji,
                 goalMode,
                 finalDays,
                 penaltyAmount,
                 finalPerWeek,
-                description.trim() || undefined
+                sanitizedDescription
             );
 
             // Reset form
             resetForm();
             onClose();
-        } catch (error) {
-            console.error('Failed to create goal:', error);
+        } catch {
+            // Error handled by caller
         } finally {
             setLoading(false);
         }
@@ -166,10 +199,12 @@ export default function CreateGoalModal({
         setTargetPerWeek(null);
         setSelectedFrequency(3);
         setPenalty(defaultPenalty.toString());
+        setErrors({});
     };
 
     const handleClose = () => {
         if (!loading) {
+            setErrors({});
             onClose();
         }
     };
@@ -274,14 +309,21 @@ export default function CreateGoalModal({
                                 </Text>
                                 <TextInput
                                     value={name}
-                                    onChangeText={setName}
+                                    onChangeText={(text) => {
+                                        setName(text);
+                                        if (errors.name) setErrors({ ...errors, name: undefined });
+                                    }}
                                     placeholder={goalMode === 'positive'
                                         ? "e.g., Go to the gym"
                                         : "e.g., Smoking cigarettes"}
                                     placeholderTextColor={colors.textMuted}
-                                    style={styles.input}
+                                    style={[styles.input, errors.name ? styles.inputError : undefined]}
                                     editable={!loading}
+                                    maxLength={100}
                                 />
+                                {errors.name && (
+                                    <Text style={styles.errorText}>{errors.name}</Text>
+                                )}
                             </View>
 
                             {/* Emoji Picker */}
@@ -345,9 +387,12 @@ export default function CreateGoalModal({
                                                 <Text style={styles.customLabel}>Times per week:</Text>
                                                 <TextInput
                                                     value={customPerWeek}
-                                                    onChangeText={setCustomPerWeek}
+                                                    onChangeText={(text) => {
+                                                        setCustomPerWeek(text);
+                                                        if (errors.custom) setErrors({ ...errors, custom: undefined });
+                                                    }}
                                                     keyboardType="number-pad"
-                                                    style={styles.customInput}
+                                                    style={[styles.customInput, errors.custom ? styles.inputError : undefined]}
                                                     editable={!loading}
                                                 />
                                             </View>
@@ -356,13 +401,19 @@ export default function CreateGoalModal({
                                                 <Text style={styles.customLabel}>Every</Text>
                                                 <TextInput
                                                     value={customDays}
-                                                    onChangeText={setCustomDays}
+                                                    onChangeText={(text) => {
+                                                        setCustomDays(text);
+                                                        if (errors.custom) setErrors({ ...errors, custom: undefined });
+                                                    }}
                                                     keyboardType="number-pad"
-                                                    style={styles.customInput}
+                                                    style={[styles.customInput, errors.custom ? styles.inputError : undefined]}
                                                     editable={!loading}
                                                 />
                                                 <Text style={styles.customLabel}>days</Text>
                                             </View>
+                                            {errors.custom && (
+                                                <Text style={styles.errorText}>{errors.custom}</Text>
+                                            )}
                                         </View>
                                     )}
                                 </View>
@@ -378,13 +429,19 @@ export default function CreateGoalModal({
                                 </Text>
                                 <TextInput
                                     value={penalty}
-                                    onChangeText={setPenalty}
+                                    onChangeText={(text) => {
+                                        setPenalty(text);
+                                        if (errors.penalty) setErrors({ ...errors, penalty: undefined });
+                                    }}
                                     placeholder="0.50"
                                     placeholderTextColor={colors.textMuted}
                                     keyboardType="decimal-pad"
-                                    style={styles.input}
+                                    style={[styles.input, errors.penalty ? styles.inputError : undefined]}
                                     editable={!loading}
                                 />
+                                {errors.penalty && (
+                                    <Text style={styles.errorText}>{errors.penalty}</Text>
+                                )}
                             </View>
 
                             {/* Description */}
@@ -440,11 +497,11 @@ export default function CreateGoalModal({
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={handleSubmit}
-                                    disabled={loading || !name.trim()}
+                                    disabled={loading}
                                     style={[
                                         styles.submitButton,
                                         goalMode === 'negative' && styles.submitButtonNeg,
-                                        (loading || !name.trim()) && styles.disabledButton,
+                                        loading && styles.disabledButton,
                                     ]}
                                 >
                                     {loading ? (
@@ -578,6 +635,15 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.border,
         fontSize: 16,
+    },
+    inputError: {
+        borderColor: colors.error,
+    },
+    errorText: {
+        color: colors.error,
+        fontSize: 12,
+        marginTop: 6,
+        lineHeight: 16,
     },
     multilineInput: {
         minHeight: 70,

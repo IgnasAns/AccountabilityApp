@@ -4,8 +4,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTransactions } from '../hooks/useTransactions';
 import { colors } from '../theme/colors';
+import { TransactionWithProfiles } from '../types/database';
 import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
+import EmptyState from '../components/EmptyState';
+import AppIcon from '../components/AppIcon';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -18,7 +21,7 @@ export default function ActivityScreen({ navigation }: Props) {
 
     // Group transactions by date
     const sections = React.useMemo(() => {
-        const groups: { [key: string]: any[] } = {};
+        const groups: { [key: string]: TransactionWithProfiles[] } = {};
 
         transactions.forEach(t => {
             const date = new Date(t.created_at);
@@ -35,7 +38,7 @@ export default function ActivityScreen({ navigation }: Props) {
         }));
     }, [transactions]);
 
-    const renderItem = ({ item }: { item: any }) => {
+    const renderItem = ({ item }: { item: TransactionWithProfiles }) => {
         const isPayer = item.from_user_id === user?.id;
         const otherUser = isPayer ? item.to_user : item.from_user;
 
@@ -89,7 +92,8 @@ export default function ActivityScreen({ navigation }: Props) {
                             resizeMode="cover"
                         />
                         <View style={styles.proofBadge}>
-                            <Text style={styles.proofText}>📸 PROOF</Text>
+                            <AppIcon name="camera-outline" size={12} color="#fff" />
+                            <Text style={styles.proofText}>PROOF</Text>
                         </View>
                     </View>
                 )}
@@ -119,10 +123,11 @@ export default function ActivityScreen({ navigation }: Props) {
                     stickySectionHeadersEnabled={false}
                     showsVerticalScrollIndicator={false}
                     ListEmptyComponent={
-                        <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyText}>No activity yet 😴</Text>
-                            <Text style={styles.emptySubtext}>Transactions and failures will appear here.</Text>
-                        </View>
+                        <EmptyState
+                            icon="clipboard-text-outline"
+                            title="No activity yet"
+                            subtitle="Transactions, goal completions, and group events will appear here."
+                        />
                     }
                     onRefresh={refetch}
                     refreshing={loading}
@@ -167,7 +172,7 @@ const styles = StyleSheet.create({
     },
     card: {
         backgroundColor: colors.surface,
-        borderRadius: 20,
+        borderRadius: 8,
         padding: 16,
         marginBottom: 12,
         borderWidth: 1,
@@ -251,7 +256,7 @@ const styles = StyleSheet.create({
     },
     proofContainer: {
         marginTop: 16,
-        borderRadius: 12,
+        borderRadius: 8,
         overflow: 'hidden',
         position: 'relative',
     },
@@ -265,6 +270,9 @@ const styles = StyleSheet.create({
         bottom: 8,
         left: 8,
         backgroundColor: 'rgba(0,0,0,0.6)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
         paddingHorizontal: 8,
         paddingVertical: 4,
         borderRadius: 6,

@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { useAuth } from './useAuth';
 import { GoalCommentWithProfile } from '../types/database';
+import { sanitizeText } from '../utils/sanitize';
+import { MAX_COMMENT_LENGTH } from '../constants';
 
 export function useGoalComments(completionId?: string) {
     const { user } = useAuth();
@@ -11,7 +13,7 @@ export function useGoalComments(completionId?: string) {
 
     const fetchComments = useCallback(async (targetCompletionId?: string) => {
         const id = targetCompletionId || completionId;
-        if (!id || !user || user.id === 'guest_user_id') return;
+        if (!id || !user) return;
 
         try {
             setLoading(true);
@@ -36,9 +38,8 @@ export function useGoalComments(completionId?: string) {
             }
 
             setComments((data || []) as GoalCommentWithProfile[]);
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error fetching comments:', err);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
         } finally {
             setLoading(false);
         }
@@ -46,18 +47,15 @@ export function useGoalComments(completionId?: string) {
 
     // Add a comment
     const addComment = async (targetCompletionId: string, content: string): Promise<boolean> => {
-        if (!user || user.id === 'guest_user_id') {
+        if (!user) {
             setError('You must be logged in to comment');
             return false;
         }
 
-        if (!content.trim()) {
+        // Sanitize the comment content
+        const sanitizedContent = sanitizeText(content, MAX_COMMENT_LENGTH);
+        if (!sanitizedContent) {
             setError('Comment cannot be empty');
-            return false;
-        }
-
-        if (content.length > 500) {
-            setError('Comment is too long (max 500 characters)');
             return false;
         }
 
@@ -69,7 +67,7 @@ export function useGoalComments(completionId?: string) {
                 .insert({
                     completion_id: targetCompletionId,
                     user_id: user.id,
-                    content: content.trim(),
+                    content: sanitizedContent,
                 })
                 .select(`
                     *,
@@ -91,16 +89,15 @@ export function useGoalComments(completionId?: string) {
             }
 
             return true;
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error adding comment:', err);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
             return false;
         }
     };
 
     // Delete a comment
     const deleteComment = async (commentId: string): Promise<boolean> => {
-        if (!user || user.id === 'guest_user_id') {
+        if (!user) {
             setError('You must be logged in');
             return false;
         }
@@ -118,9 +115,8 @@ export function useGoalComments(completionId?: string) {
 
             setComments(prev => prev.filter(c => c.id !== commentId));
             return true;
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error deleting comment:', err);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
             return false;
         }
     };

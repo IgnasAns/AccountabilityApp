@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase, logFailure, settleDebt } from '../services/supabase';
 import { useAuth } from './useAuth';
 import { Transaction, TransactionWithProfiles, Profile } from '../types/database';
+import { DEFAULT_PAGE_SIZE } from '../constants';
 
 export function useTransactions(groupId?: string) {
     const { user } = useAuth();
@@ -13,15 +14,6 @@ export function useTransactions(groupId?: string) {
 
     const fetchTransactions = useCallback(async () => {
         if (!user) return;
-
-        // Guest mode support
-        if (user.id === 'guest_user_id') {
-            setLoading(false);
-            setTransactions([]);
-            setPendingDebts([]);
-            setPendingCredits([]);
-            return;
-        }
 
         try {
             setLoading(true);
@@ -35,7 +27,8 @@ export function useTransactions(groupId?: string) {
           to_user:profiles!transactions_to_user_id_fkey (*)
         `)
                 .or(`from_user_id.eq.${user.id},to_user_id.eq.${user.id}`)
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false })
+                .limit(DEFAULT_PAGE_SIZE);
 
             if (groupId) {
                 query = query.eq('group_id', groupId);
@@ -59,9 +52,8 @@ export function useTransactions(groupId?: string) {
                     (t) => t.to_user_id === user.id && t.status === 'pending'
                 )
             );
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error fetching transactions:', err);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
         } finally {
             setLoading(false);
         }
@@ -76,8 +68,8 @@ export function useTransactions(groupId?: string) {
             const result = await logFailure(targetGroupId, description);
             await fetchTransactions();
             return result;
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
             throw err;
         }
     }
@@ -87,8 +79,8 @@ export function useTransactions(groupId?: string) {
             const result = await settleDebt(transactionId);
             await fetchTransactions();
             return result;
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
             throw err;
         }
     }

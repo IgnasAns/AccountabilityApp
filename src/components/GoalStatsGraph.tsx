@@ -29,14 +29,14 @@ interface Props {
 
 // Color palette for different members
 const MEMBER_COLORS = [
-    '#22c55e', // green
-    '#3b82f6', // blue
-    '#f59e0b', // amber
-    '#ef4444', // red
-    '#8b5cf6', // purple
-    '#ec4899', // pink
-    '#06b6d4', // cyan
-    '#f97316', // orange
+    colors.primary,
+    colors.accent,
+    colors.warning,
+    colors.success,
+    '#A78BFA',
+    '#F472B6',
+    '#93C5FD',
+    '#FB7185',
 ];
 
 export default function GoalStatsGraph({ allMembersData, goalMode, label }: Props) {

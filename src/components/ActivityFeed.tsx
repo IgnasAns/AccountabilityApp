@@ -4,7 +4,6 @@ import {
     Text,
     FlatList,
     StyleSheet,
-    ActivityIndicator,
     Image,
     TouchableOpacity,
 } from 'react-native';
@@ -12,6 +11,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { colors } from '../theme/colors';
 import { useActivityLog } from '../hooks/useActivityLog';
 import { ActivityLogWithProfile } from '../types/database';
+import { SkeletonListItem } from './Skeleton';
 
 interface Props {
     groupId: string;
@@ -64,7 +64,9 @@ export default function ActivityFeed({ groupId, maxItems = 50, showHeader = true
     if (loading) {
         return (
             <View style={styles.centered}>
-                <ActivityIndicator color={colors.primary} />
+                {Array.from({ length: 5 }).map((_, i) => (
+                    <SkeletonListItem key={i} />
+                ))}
             </View>
         );
     }
@@ -101,6 +103,11 @@ export default function ActivityFeed({ groupId, maxItems = 50, showHeader = true
                 keyExtractor={(item) => item.id}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.listContent}
+                removeClippedSubviews={true}
+                maxToRenderPerBatch={10}
+                windowSize={10}
+                initialNumToRender={10}
+                getItemLayout={undefined}
             />
         </View>
     );

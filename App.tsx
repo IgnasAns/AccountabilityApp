@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, ActivityIndicator, Text, Platform, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -11,17 +11,21 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { AuthProvider, useAuth } from './src/hooks/useAuth';
 import { AlertProvider } from './src/components/StyledAlert';
 import ErrorBoundary from './src/components/ErrorBoundary';
+import AppIcon from './src/components/AppIcon';
 import { colors } from './src/theme/colors';
 
 // Screens
 import LoginScreen from './src/screens/LoginScreen';
 import SignUpScreen from './src/screens/SignUpScreen';
+import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
+import ResetPasswordScreen from './src/screens/ResetPasswordScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import CreateGroupScreen from './src/screens/CreateGroupScreen';
 import JoinGroupScreen from './src/screens/JoinGroupScreen';
 import GroupDetailScreen from './src/screens/GroupDetailScreen';
 import GroupChatScreen from './src/screens/GroupChatScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import ChangePasswordScreen from './src/screens/ChangePasswordScreen';
 import ExploreScreen from './src/screens/ExploreScreen';
 import ActivityScreen from './src/screens/ActivityScreen';
 
@@ -42,15 +46,15 @@ function TabNavigator() {
           height: Platform.OS === 'android' ? 70 + insets.bottom : 60 + insets.bottom,
           paddingBottom: insets.bottom > 0 ? insets.bottom : 10,
           paddingTop: 10,
-          // Premium glass-like shadow
           shadowColor: '#000',
-          shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 10,
-          elevation: 20,
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.16,
+          shadowRadius: 8,
+          elevation: 10,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
+        tabBarHideOnKeyboard: true,
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: '700',
@@ -63,7 +67,9 @@ function TabNavigator() {
         component={HomeScreen}
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: 24 }}>🏠</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <AppIcon name={focused ? 'home-variant' : 'home-variant-outline'} color={color} size={24} />
+          )
         }}
       />
       <Tab.Screen
@@ -71,16 +77,18 @@ function TabNavigator() {
         component={ExploreScreen}
         options={{
           title: 'Explore',
-          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: 24 }}>🔍</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <AppIcon name={focused ? 'compass' : 'compass-outline'} color={color} size={24} />
+          )
         }}
       />
       <Tab.Screen
         name="AddTab"
-        component={CreateGroupScreen as any} // Using CreateGroup directly for now, or a modal opener
-        listeners={({ navigation }) => ({
+        component={CreateGroupScreen}
+        listeners={({ navigation: nav }) => ({
           tabPress: (e) => {
-            e.preventDefault(); // Prevent default tab switch
-            navigation.navigate('CreateGroup'); // Open as modal/stack
+            e.preventDefault();
+            nav.navigate('CreateGroup');
           },
         })}
         options={{
@@ -89,18 +97,18 @@ function TabNavigator() {
             <View style={{
               width: 48,
               height: 48,
-              borderRadius: 24,
+              borderRadius: 14,
               backgroundColor: colors.primary,
               justifyContent: 'center',
               alignItems: 'center',
               marginTop: -15,
               shadowColor: colors.primary,
               shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.4,
+              shadowOpacity: 0.28,
               shadowRadius: 8,
               elevation: 8,
             }}>
-              <Text style={{ color: colors.text, fontSize: 28, fontWeight: 'bold' }}>+</Text>
+              <AppIcon name="plus" color={colors.text} size={30} />
             </View>
           )
         }}
@@ -110,7 +118,9 @@ function TabNavigator() {
         component={ActivityScreen}
         options={{
           title: 'Activity',
-          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: 24 }}>🔔</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <AppIcon name={focused ? 'bell' : 'bell-outline'} color={color} size={24} />
+          )
         }}
       />
       <Tab.Screen
@@ -118,7 +128,9 @@ function TabNavigator() {
         component={ProfileScreen}
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => <Text style={{ color, fontSize: 24 }}>👤</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <AppIcon name={focused ? 'account-circle' : 'account-circle-outline'} color={color} size={24} />
+          )
         }}
       />
     </Tab.Navigator>
@@ -126,8 +138,11 @@ function TabNavigator() {
 }
 
 function AuthNavigator() {
+  const { passwordRecovery } = useAuth();
+
   return (
     <Stack.Navigator
+      initialRouteName={passwordRecovery ? 'ResetPassword' : 'Login'}
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: colors.background }
@@ -135,13 +150,18 @@ function AuthNavigator() {
     >
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="SignUp" component={SignUpScreen} />
+      <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </Stack.Navigator>
   );
 }
 
 function AppNavigator() {
+  const { passwordRecovery } = useAuth();
+
   return (
     <Stack.Navigator
+      initialRouteName={passwordRecovery ? 'ResetPassword' : 'MainTabs'}
       screenOptions={{
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.text,
@@ -157,7 +177,7 @@ function AppNavigator() {
 
       <Stack.Screen
         name="CreateGroup"
-        component={CreateGroupScreen as any}
+        component={CreateGroupScreen}
         options={{ title: 'Create Group', headerBackTitle: 'Back' }}
       />
       <Stack.Screen
@@ -167,20 +187,30 @@ function AppNavigator() {
       />
       <Stack.Screen
         name="GroupDetail"
-        component={GroupDetailScreen as any}
-        options={{ title: 'Group Details', headerBackTitle: 'Back' }}
+        component={GroupDetailScreen as React.ComponentType<Record<string, unknown>>}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="GroupChat"
-        component={GroupChatScreen as any}
+        component={GroupChatScreen as React.ComponentType<Record<string, unknown>>}
         options={{ title: 'Group Chat', headerBackTitle: 'Back' }}
+      />
+      <Stack.Screen
+        name="ChangePassword"
+        component={ChangePasswordScreen}
+        options={{ title: 'Change Password', headerBackTitle: 'Back' }}
+      />
+      <Stack.Screen
+        name="ResetPassword"
+        component={ResetPasswordScreen}
+        options={{ title: 'Set New Password', headerBackTitle: 'Back' }}
       />
     </Stack.Navigator>
   );
 }
 
 function NavigationWrapper() {
-  const { user, loading } = useAuth();
+  const { user, loading, passwordRecovery } = useAuth();
 
   if (loading) {
     return (
@@ -191,7 +221,7 @@ function NavigationWrapper() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer key={passwordRecovery ? 'password-recovery' : user ? 'app' : 'auth'}>
       {user ? <AppNavigator /> : <AuthNavigator />}
     </NavigationContainer>
   );

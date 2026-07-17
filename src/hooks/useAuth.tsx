@@ -1,73 +1,125 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { Linking, Platform } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
-import { supabase } from '../services/supabase';
+import { supabase, initAuthListener, cleanupAuthListener } from '../services/supabase';
 import { Profile } from '../types/database';
+import { env } from '../config/env';
+
+const PASSWORD_RESET_REDIRECT_URL = 'doitmate://reset-password';
+const SESSION_LOAD_TIMEOUT_MS = 6000;
+const AUTH_REQUEST_TIMEOUT_MS = 15000;
 
 interface AuthContextType {
     user: User | null;
     profile: Profile | null;
     session: Session | null;
     loading: boolean;
-    signUp: (email: string, password: string, name: string) => Promise<void>;
     signIn: (email: string, password: string) => Promise<void>;
+    signUp: (email: string, password: string, name: string) => Promise<void>;
     signOut: () => Promise<void>;
-    updateProfile: (updates: Partial<Profile>) => Promise<void>;
     signInAsGuest: () => Promise<void>;
+    updateProfile: (updates: Partial<Profile>) => Promise<void>;
+    refreshSession: () => Promise<void>;
+    requestPasswordReset: (email: string) => Promise<void>;
+    resetPassword: (newPassword: string) => Promise<void>;
+    changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+    passwordRecovery: boolean;
+    clearPasswordRecovery: () => void;
+    isGuest: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>({
+    user: null,
+    profile: null,
+    session: null,
+    loading: true,
+    signIn: async () => {},
+    signUp: async () => {},
+    signOut: async () => {},
+    signInAsGuest: async () => {},
+    updateProfile: async () => {},
+    refreshSession: async () => {},
+    requestPasswordReset: async () => {},
+    resetPassword: async () => {},
+    changePassword: async () => {},
+    passwordRecovery: false,
+    clearPasswordRecovery: () => {},
+    isGuest: false,
+});
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+function parseAuthUrlParams(url: string): Record<string, string> {
+    const params: Record<string, string> = {};
+    const hashIndex = url.indexOf('#');
+    const queryIndex = url.indexOf('?');
+    const chunks: string[] = [];
+
+    if (queryIndex >= 0) {
+        chunks.push(url.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : undefined));
+    }
+    if (hashIndex >= 0) {
+        chunks.push(url.slice(hashIndex + 1));
+    }
+
+    chunks
+        .join('&')
+        .split('&')
+        .filter(Boolean)
+        .forEach((pair) => {
+            const [rawKey, ...rawValue] = pair.split('=');
+            if (!rawKey) return;
+
+            try {
+                const key = decodeURIComponent(rawKey);
+                const value = decodeURIComponent(rawValue.join('=') || '');
+                params[key] = value;
+            } catch {
+                params[rawKey] = rawValue.join('=') || '';
+            }
+        });
+
+    return params;
+}
+
+async function getStoredSessionWithTimeout(): Promise<Session | null> {
+    const sessionPromise = supabase.auth
+        .getSession()
+        .then(({ data }) => data.session)
+        .catch((error) => {
+            console.error('[Auth] Session load failed:', error);
+            return null;
+        });
+
+    const timeoutPromise = new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), SESSION_LOAD_TIMEOUT_MS);
+    });
+
+    return Promise.race([sessionPromise, timeoutPromise]);
+}
+
+async function withAuthTimeout<T>(promise: Promise<T>, errorMessage: string): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(errorMessage)), AUTH_REQUEST_TIMEOUT_MS);
+    });
+
+    try {
+        return await Promise.race([promise, timeoutPromise]);
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+    }
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [profile, setProfile] = useState<Profile | null>(null);
     const [session, setSession] = useState<Session | null>(null);
     const [loading, setLoading] = useState(true);
     const [isGuest, setIsGuest] = useState(false);
+    const [passwordRecovery, setPasswordRecovery] = useState(false);
 
-    // Safety timeout to prevent infinite loading screen
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            if (loading) {
-                console.warn('Auth loading timed out, forcing app load.');
-                setLoading(false);
-            }
-        }, 5000);
-        return () => clearTimeout(timer);
-    }, [loading]);
-
-    useEffect(() => {
-        // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            if (session?.user) {
-                fetchProfile(session.user.id);
-            } else {
-                setLoading(false);
-            }
-        }).catch((error) => {
-            console.error('Error getting session:', error);
-            setLoading(false);
-        });
-
-        // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (_event, session) => {
-                setSession(session);
-                setUser(session?.user ?? null);
-                if (session?.user) {
-                    await fetchProfile(session.user.id);
-                } else {
-                    setProfile(null);
-                }
-                setLoading(false);
-            }
-        );
-
-        return () => subscription.unsubscribe();
-    }, []);
-
-    async function fetchProfile(userId: string) {
+    const fetchProfile = useCallback(async (userId: string) => {
         try {
             const { data, error } = await supabase
                 .from('profiles')
@@ -75,124 +127,372 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 .eq('id', userId)
                 .single();
 
-            if (error) throw error;
-            setProfile(data);
+            if (error) {
+                console.error('[Auth] Error fetching profile:', error);
+                return;
+            }
+
+            setProfile(data as Profile);
+        } catch (err) {
+            console.error('[Auth] Error fetching profile:', err);
+        }
+    }, []);
+
+    const scheduleProfileFetch = useCallback((userId: string) => {
+        setTimeout(() => {
+            fetchProfile(userId);
+        }, 0);
+    }, [fetchProfile]);
+
+    const handlePasswordRecoveryUrl = useCallback(async (url: string): Promise<boolean> => {
+        const params = parseAuthUrlParams(url);
+        const isRecoveryUrl = url.includes('reset-password') || params.type === 'recovery';
+
+        if (!isRecoveryUrl) {
+            return false;
+        }
+
+        try {
+            setLoading(true);
+
+            if (params.error || params.error_code) {
+                throw new Error(params.error_description || params.error || 'Password reset link failed.');
+            }
+
+            let recoverySession: Session | null = null;
+
+            if (params.code) {
+                const { data, error } = await supabase.auth.exchangeCodeForSession(params.code);
+                if (error) throw error;
+                recoverySession = data.session;
+            } else if (params.access_token && params.refresh_token) {
+                const { data, error } = await supabase.auth.setSession({
+                    access_token: params.access_token,
+                    refresh_token: params.refresh_token,
+                });
+                if (error) throw error;
+                recoverySession = data.session;
+            }
+
+            if (!recoverySession) {
+                const { data } = await supabase.auth.getSession();
+                recoverySession = data.session;
+            }
+
+            if (!recoverySession) {
+                throw new Error('Password reset link expired. Please request a new reset email.');
+            }
+
+            setPasswordRecovery(true);
+            setSession(recoverySession);
+            setUser(recoverySession.user);
+            setIsGuest(false);
+            await fetchProfile(recoverySession.user.id);
+            return true;
         } catch (error) {
-            console.error('Error fetching profile:', error);
+            console.error('[Auth] Password recovery link error:', error);
+            setPasswordRecovery(false);
+            return false;
         } finally {
             setLoading(false);
         }
-    }
+    }, [fetchProfile]);
 
-    async function signUp(email: string, password: string, name: string) {
+    // Initialize auth listener
+    useEffect(() => {
+        initAuthListener();
+
+        const initializeAuth = async () => {
+            try {
+                const initialUrl = Platform.OS === 'web' ? undefined : await Linking.getInitialURL();
+                if (initialUrl) {
+                    const handledRecovery = await handlePasswordRecoveryUrl(initialUrl);
+                    if (handledRecovery) return;
+                }
+
+                const session = await getStoredSessionWithTimeout();
+                setSession(session);
+                setUser(session?.user ?? null);
+                setIsGuest(session?.user?.is_anonymous === true);
+                if (session?.user) {
+                    await fetchProfile(session.user.id);
+                }
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        initializeAuth();
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            (event, session) => {
+                if (env.enableDebugLogs) {
+                    console.log('[Auth] State change:', event);
+                }
+                setSession(session);
+                setUser(session?.user ?? null);
+                setIsGuest(session?.user?.is_anonymous === true);
+
+                if (event === 'PASSWORD_RECOVERY' && session?.user) {
+                    setPasswordRecovery(true);
+                    scheduleProfileFetch(session.user.id);
+                } else if (event === 'SIGNED_IN' && session?.user) {
+                    scheduleProfileFetch(session.user.id);
+                } else if (event === 'SIGNED_OUT') {
+                    setProfile(null);
+                    setIsGuest(false);
+                    setPasswordRecovery(false);
+                } else if (event === 'TOKEN_REFRESHED') {
+                    // Session was refreshed, no action needed
+                }
+
+                setLoading(false);
+            }
+        );
+
+        const linkingSubscription = Platform.OS === 'web'
+            ? undefined
+            : Linking.addEventListener('url', ({ url }) => {
+                handlePasswordRecoveryUrl(url);
+            });
+
+        return () => {
+            subscription.unsubscribe();
+            linkingSubscription?.remove();
+            cleanupAuthListener();
+        };
+    }, [fetchProfile, handlePasswordRecoveryUrl, scheduleProfileFetch]);
+
+    const signIn = useCallback(async (email: string, password: string) => {
+        setIsGuest(false);
+        const { data, error } = await withAuthTimeout(
+            supabase.auth.signInWithPassword({
+                email: email.toLowerCase().trim(),
+                password,
+            }),
+            'Sign in timed out. Please check your connection and try again.'
+        );
+
+        if (error) throw error;
+
+        if (data.user) {
+            await fetchProfile(data.user.id);
+        }
+    }, [fetchProfile]);
+
+    const signUp = useCallback(async (email: string, password: string, name: string) => {
+        setIsGuest(false);
         const { data, error } = await supabase.auth.signUp({
-            email,
+            email: email.toLowerCase().trim(),
             password,
             options: {
-                data: { name }, // This metadata is used by the Postgres trigger to create the profile
+                data: {
+                    name: name.trim(),
+                },
             },
         });
+
+        if (error) throw error;
+
+        // Create profile record
+        if (data.user) {
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .upsert({
+                    id: data.user.id,
+                    name: name.trim(),
+                    email: email.toLowerCase().trim(),
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                });
+
+            if (profileError) {
+                console.error('[Auth] Error creating profile:', profileError);
+            }
+
+            await fetchProfile(data.user.id);
+        }
+    }, [fetchProfile]);
+
+    const signOut = useCallback(async () => {
+        const isAnon = user?.is_anonymous;
+
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+
+        // For anonymous users, also delete the account
+        if (isAnon) {
+            try {
+                // Anonymous users are ephemeral - data cleanup is handled by RLS
+                // The session is already invalidated by signOut above
+            } catch {
+                // Ignore cleanup errors for anonymous accounts
+            }
+        }
+
+        setUser(null);
+        setProfile(null);
+        setSession(null);
+        setIsGuest(false);
+    }, [user]);
+
+    const signInAsGuest = useCallback(async () => {
+        // Use Supabase anonymous auth - creates a real auth session
+        const { data, error } = await supabase.auth.signInAnonymously();
+
         if (error) {
+            // If anonymous auth is not enabled, throw a descriptive error
+            if (error.message.includes('Anonymous') || error.message.includes('anonymous')) {
+                throw new Error('Anonymous sign-in is not enabled. Please enable it in your Supabase dashboard under Authentication > Providers.');
+            }
             throw error;
         }
 
-        // If auto-confirm is enabled, data.session will be present. 
-        // If email confirmation is required, data.session will be null.
-        if (data.session) {
-            setSession(data.session);
-            setUser(data.user);
-            // Profile creation is handled by a Database Trigger on the 'auth.users' table
-            // referencing public.handle_new_user()
+        if (data.user) {
+            setIsGuest(true);
+            // Profile is auto-created by the trigger
+            // Give a moment for the trigger to fire, then fetch
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await fetchProfile(data.user.id);
         }
-    }
+    }, [fetchProfile]);
 
-    async function signIn(email: string, password: string) {
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
-        if (error) throw error;
-    }
-
-    async function signOut() {
-        // Handle guest mode immediately
-        if (isGuest) {
-            setUser(null);
-            setProfile(null);
-            setSession(null);
-            setIsGuest(false);
-            return;
-        }
-
-        // Force clear local state FIRST to ensure UI updates immediately
-        setSession(null);
-        setUser(null);
-        setProfile(null);
-
-        // Then attempt to sign out from Supabase (don't await or set loading)
-        try {
-            await supabase.auth.signOut();
-        } catch (error) {
-            console.warn('Supabase sign out warning (local state already cleared):', error);
-            // Ignore - local state is already cleared so user is logged out from app's perspective
-        }
-    }
-
-    async function signInAsGuest() {
-        setIsGuest(true);
-        // Create a mock user and profile for guest
-        const guestUser = {
-            id: 'guest_user_id',
-            app_metadata: {},
-            user_metadata: {},
-            aud: 'authenticated',
-            created_at: new Date().toISOString(),
-        } as User;
-
-        const guestProfile = {
-            id: 'guest_user_id',
-            name: 'Guest User',
-            avatar_url: null,
-            payment_link: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        };
-
-        setUser(guestUser);
-        setProfile(guestProfile);
-    }
-
-    async function updateProfile(updates: Partial<Profile>) {
-        if (!user) throw new Error('No user logged in');
+    const updateProfile = useCallback(async (updates: Partial<Profile>) => {
+        if (!user) throw new Error('Not authenticated');
 
         const { error } = await supabase
             .from('profiles')
-            .update({ ...updates, updated_at: new Date().toISOString() })
+            .update({
+                ...updates,
+                updated_at: new Date().toISOString(),
+            })
             .eq('id', user.id);
 
         if (error) throw error;
-        setProfile((prev) => (prev ? { ...prev, ...updates } : null));
-    }
 
-    const value = {
-        user,
-        profile,
-        session,
-        loading,
-        signUp,
-        signIn,
-        signOut,
-        updateProfile,
-        signInAsGuest,
-    };
+        // Refresh profile
+        await fetchProfile(user.id);
+    }, [user, fetchProfile]);
 
-    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+    const refreshSession = useCallback(async () => {
+        const { data, error } = await withAuthTimeout(
+            supabase.auth.refreshSession(),
+            'Session refresh timed out. Please try again.'
+        );
+        if (error) {
+            console.error('[Auth] Session refresh failed:', error);
+            throw error;
+        }
+        if (data.session) {
+            setSession(data.session);
+            setUser(data.session.user);
+        }
+    }, []);
+
+    const requestPasswordReset = useCallback(async (email: string) => {
+        const { error } = await withAuthTimeout(
+            supabase.auth.resetPasswordForEmail(email.toLowerCase().trim(), {
+                redirectTo: PASSWORD_RESET_REDIRECT_URL,
+            }),
+            'Password reset request timed out. Please try again.'
+        );
+
+        if (error) throw error;
+    }, []);
+
+    const resetPassword = useCallback(async (newPassword: string) => {
+        const session = await getStoredSessionWithTimeout();
+
+        if (!session) {
+            throw new Error('Password reset session expired. Please request a new reset email.');
+        }
+
+        const { data, error } = await withAuthTimeout(
+            supabase.auth.updateUser({ password: newPassword }),
+            'Password update timed out. Please check your connection and try again.'
+        );
+        if (error) throw error;
+
+        setPasswordRecovery(false);
+        setUser(data.user ?? session.user);
+        setSession(data.user ? { ...session, user: data.user } : session);
+    }, []);
+
+    const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+        if (!user?.email) {
+            throw new Error('This account does not have an email password to change.');
+        }
+
+        if (user.is_anonymous) {
+            throw new Error('Guest accounts do not have passwords. Create an account before changing a password.');
+        }
+
+        const email = user.email.toLowerCase().trim();
+        const { data: verificationData, error: verificationError } = await withAuthTimeout(
+            supabase.auth.signInWithPassword({
+                email,
+                password: currentPassword,
+            }),
+            'Current password verification timed out. Please try again.'
+        );
+
+        if (verificationError) {
+            throw new Error('Current password is incorrect.');
+        }
+
+        const verifiedSession = verificationData.session ?? session;
+        if (verificationData.session) {
+            setSession(verificationData.session);
+            setUser(verificationData.session.user);
+        }
+
+        const { data, error } = await withAuthTimeout(
+            supabase.auth.updateUser({ password: newPassword }),
+            'Password update timed out. Please check your connection and try again.'
+        );
+        if (error) throw error;
+
+        setUser(data.user ?? verifiedSession?.user ?? user);
+        if (data.user && verifiedSession) {
+            setSession({ ...verifiedSession, user: data.user });
+        }
+    }, [session, user]);
+
+    const clearPasswordRecovery = useCallback(() => {
+        setPasswordRecovery(false);
+    }, []);
+
+    return (
+        <AuthContext.Provider
+            value={{
+                user,
+                profile,
+                session,
+                loading,
+                signIn,
+                signUp,
+                signOut,
+                signInAsGuest,
+                updateProfile,
+                refreshSession,
+                requestPasswordReset,
+                resetPassword,
+                changePassword,
+                passwordRecovery,
+                clearPasswordRecovery,
+                isGuest,
+            }}
+        >
+            {children}
+        </AuthContext.Provider>
+    );
 }
 
-export function useAuth() {
+export const useAuth = () => {
     const context = useContext(AuthContext);
-    if (context === undefined) {
+    if (!context) {
         throw new Error('useAuth must be used within an AuthProvider');
     }
     return context;
-}
+};

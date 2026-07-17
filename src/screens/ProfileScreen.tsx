@@ -17,41 +17,79 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyledAlert } from '../components/StyledAlert';
 import ConfirmModal from '../components/ConfirmModal';
 import { pickImage, uploadAvatar } from '../services/photoService';
+import { sanitizeName, sanitizeUrl } from '../utils/sanitize';
+import { safeHaptics } from '../utils/haptics';
+import AppIcon from '../components/AppIcon';
+import appConfig from '../../app.json';
 
 // Declare window for web platform
 declare const window: { alert: (message: string) => void } | undefined;
+
+const APP_VERSION = appConfig.expo.version;
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
 }
 
 export default function ProfileScreen({ navigation }: Props) {
-    const { profile, updateProfile, signOut } = useAuth();
+    const { profile, updateProfile, signOut, isGuest } = useAuth();
     const insets = useSafeAreaInsets();
     const [name, setName] = useState(profile?.name || '');
     const [paymentLink, setPaymentLink] = useState(profile?.payment_link || '');
     const [loading, setLoading] = useState(false);
     const [showLogoutModal, setShowLogoutModal] = useState(false);
+    const [errors, setErrors] = useState<{ name?: string; paymentLink?: string }>({});
+
+    const validateForm = (): boolean => {
+        const newErrors: typeof errors = {};
+
+        const sanitizedName = sanitizeName(name);
+        if (!sanitizedName || sanitizedName.length < 2) {
+            newErrors.name = 'Name must be at least 2 characters';
+        }
+
+        if (paymentLink.trim()) {
+            const sanitizedUrl = sanitizeUrl(paymentLink);
+            if (!sanitizedUrl) {
+                newErrors.paymentLink = 'Please enter a valid URL';
+            }
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
 
     const handleSave = async () => {
-        if (profile?.id === 'guest_user_id') {
-            StyledAlert.alert('Guest Mode', 'You cannot update the guest profile.');
+        if (!validateForm()) {
+            safeHaptics('warning');
             return;
         }
 
         try {
             setLoading(true);
-            await updateProfile({ name, payment_link: paymentLink || null });
+            safeHaptics('light');
+
+            const sanitizedName = sanitizeName(name);
+            const sanitizedPaymentLink = paymentLink.trim() ? sanitizeUrl(paymentLink) : null;
+
+            await updateProfile({
+                name: sanitizedName,
+                payment_link: sanitizedPaymentLink,
+            });
+
+            safeHaptics('success');
+
             if (Platform.OS === 'web') {
                 window?.alert('Profile updated successfully!');
             } else {
                 StyledAlert.alert('Success', 'Profile updated successfully');
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
+            safeHaptics('error');
             if (Platform.OS === 'web') {
-                window?.alert(`Error: ${error.message} `);
+                window?.alert(`Error: ${(error instanceof Error ? error.message : "An error occurred")} `);
             } else {
-                StyledAlert.alert('Error', error.message);
+                StyledAlert.alert('Error', (error instanceof Error ? error.message : "An error occurred"));
             }
         } finally {
             setLoading(false);
@@ -60,21 +98,20 @@ export default function ProfileScreen({ navigation }: Props) {
 
     const handleAvatarPress = async () => {
         if (loading) return;
-        if (profile?.id === 'guest_user_id') {
-            StyledAlert.alert('Guest Mode', 'You cannot update the guest profile.');
-            return;
-        }
 
         try {
             const uri = await pickImage();
             if (uri) {
                 setLoading(true);
+                safeHaptics('light');
                 const publicUrl = await uploadAvatar(uri);
                 await updateProfile({ avatar_url: publicUrl });
+                safeHaptics('success');
                 StyledAlert.alert('Success', 'Profile picture updated');
             }
-        } catch (error: any) {
-            StyledAlert.alert('Error', error.message || 'Failed to update profile picture');
+        } catch (error: unknown) {
+            safeHaptics('error');
+            StyledAlert.alert('Error', (error instanceof Error ? error.message : "Failed to update profile picture"));
         } finally {
             setLoading(false);
         }
@@ -84,13 +121,32 @@ export default function ProfileScreen({ navigation }: Props) {
         setShowLogoutModal(true);
     };
 
+    const handleChangePassword = () => {
+        if (isGuest) {
+            StyledAlert.alert('Password Not Available', 'Guest accounts do not have passwords. Create an account to use password security.');
+            return;
+        }
+
+        navigation.navigate('ChangePassword');
+    };
+
     const doSignOut = async () => {
         setShowLogoutModal(false);
         try {
             await signOut();
-        } catch (error: any) {
+        } catch {
             // Sign out handled gracefully
         }
+    };
+
+    const getInitial = (): string => {
+        if (profile?.name) {
+            return profile.name.charAt(0).toUpperCase();
+        }
+        if (profile?.email) {
+            return profile.email.charAt(0).toUpperCase();
+        }
+        return '?';
     };
 
     return (
@@ -109,19 +165,19 @@ export default function ProfileScreen({ navigation }: Props) {
                             style={styles.avatarImage}
                         />
                     ) : (
-                        <Text style={styles.avatarText}>
-                            {profile?.name?.charAt(0).toUpperCase() || '?'}
-                        </Text>
+                        <Text style={styles.avatarText}>{getInitial()}</Text>
                     )}
 
-                    {/* Camera Icon Overlay */}
                     <View style={styles.cameraIconContainer}>
-                        <Text style={styles.cameraIcon}>📷</Text>
+                        <AppIcon name="camera-outline" size={16} color={colors.text} />
                     </View>
                 </TouchableOpacity>
                 <Text style={styles.profileName}>
                     {profile?.name || 'User'}
                 </Text>
+                {profile?.email && (
+                    <Text style={styles.profileEmail}>{profile.email}</Text>
+                )}
             </View>
 
             {/* Profile Form */}
@@ -132,28 +188,42 @@ export default function ProfileScreen({ navigation }: Props) {
                     <Text style={styles.label}>Display Name</Text>
                     <TextInput
                         value={name}
-                        onChangeText={setName}
+                        onChangeText={(text) => {
+                            setName(text);
+                            if (errors.name) setErrors({ ...errors, name: undefined });
+                        }}
                         placeholder="Your name"
                         placeholderTextColor={colors.textMuted}
-                        style={styles.input}
+                        style={[styles.input, errors.name ? styles.inputError : undefined]}
                         editable={!loading}
+                        maxLength={50}
                     />
+                    {errors.name && (
+                        <Text style={styles.errorText}>{errors.name}</Text>
+                    )}
                 </View>
 
                 <View style={styles.inputGroup}>
                     <Text style={styles.label}>Payment Link</Text>
                     <TextInput
                         value={paymentLink}
-                        onChangeText={setPaymentLink}
-                        placeholder="e.g., paypal.me/username or revolut.me/username"
+                        onChangeText={(text) => {
+                            setPaymentLink(text);
+                            if (errors.paymentLink) setErrors({ ...errors, paymentLink: undefined });
+                        }}
+                        placeholder="e.g., paypal.me/username"
                         placeholderTextColor={colors.textMuted}
                         autoCapitalize="none"
+                        autoCorrect={false}
                         keyboardType="url"
-                        style={styles.input}
+                        style={[styles.input, errors.paymentLink ? styles.inputError : undefined]}
                         editable={!loading}
                     />
+                    {errors.paymentLink && (
+                        <Text style={styles.errorText}>{errors.paymentLink}</Text>
+                    )}
                     <Text style={styles.helperText}>
-                        Share this link so friends know where to send payments
+                        Share this so friends know where to send payments
                     </Text>
                 </View>
 
@@ -161,6 +231,7 @@ export default function ProfileScreen({ navigation }: Props) {
                     onPress={handleSave}
                     disabled={loading}
                     style={[styles.saveButton, loading && styles.disabledButton]}
+                    activeOpacity={0.8}
                 >
                     {loading ? (
                         <ActivityIndicator color="#fff" />
@@ -170,23 +241,38 @@ export default function ProfileScreen({ navigation }: Props) {
                 </TouchableOpacity>
             </View>
 
-            {/* Danger Zone */}
+            {/* Account Section */}
             <View style={styles.sectionCard}>
                 <Text style={[styles.sectionTitle, styles.dangerTitle]}>Account</Text>
 
                 <TouchableOpacity
+                    onPress={handleChangePassword}
+                    style={styles.accountButton}
+                    activeOpacity={0.8}
+                >
+                    <AppIcon name="lock-outline" size={20} color={colors.text} />
+                    <Text style={styles.accountButtonText}>Change Password</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
                     onPress={handleSignOut}
                     style={styles.signOutButton}
+                    activeOpacity={0.8}
                 >
                     <Text style={styles.signOutButtonText}>Sign Out</Text>
                 </TouchableOpacity>
+            </View>
+
+            {/* Version Info */}
+            <View style={styles.versionContainer}>
+                <Text style={styles.versionText}>Do It Mate! v{APP_VERSION}</Text>
             </View>
 
             {/* Logout Confirmation Modal */}
             <ConfirmModal
                 visible={showLogoutModal}
                 title="Sign Out"
-                message="Are you sure you want to sign out? You'll need to log in again to access your account."
+                message="Are you sure you want to sign out?"
                 confirmText="Sign Out"
                 cancelText="Cancel"
                 confirmStyle="danger"
@@ -215,7 +301,7 @@ const styles = StyleSheet.create({
         width: 100,
         height: 100,
         backgroundColor: colors.surface,
-        borderRadius: 50,
+        borderRadius: 24,
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: 16,
@@ -223,21 +309,21 @@ const styles = StyleSheet.create({
         borderColor: colors.primary,
         shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.2,
-        shadowRadius: 15,
-        elevation: 8,
+        shadowOpacity: 0.12,
+        shadowRadius: 10,
+        elevation: 4,
     },
     avatarImage: {
         width: '100%',
         height: '100%',
-        borderRadius: 50,
+        borderRadius: 24,
     },
     cameraIconContainer: {
         position: 'absolute',
         bottom: 0,
         right: 0,
         backgroundColor: colors.surface,
-        borderRadius: 12,
+        borderRadius: 8,
         padding: 6,
         borderWidth: 1,
         borderColor: colors.border,
@@ -245,9 +331,6 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.2,
         shadowRadius: 4,
         elevation: 4,
-    },
-    cameraIcon: {
-        fontSize: 14,
     },
     avatarText: {
         color: colors.primary,
@@ -260,9 +343,14 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         letterSpacing: -0.5,
     },
+    profileEmail: {
+        color: colors.textMuted,
+        fontSize: 14,
+        marginTop: 4,
+    },
     sectionCard: {
         backgroundColor: colors.surface,
-        borderRadius: 24,
+        borderRadius: 8,
         padding: 24,
         marginBottom: 24,
         borderWidth: 1,
@@ -293,10 +381,18 @@ const styles = StyleSheet.create({
         color: colors.text,
         paddingHorizontal: 16,
         paddingVertical: 14,
-        borderRadius: 16,
+        borderRadius: 10,
         borderWidth: 1,
         borderColor: colors.border,
         fontSize: 16,
+    },
+    inputError: {
+        borderColor: colors.error,
+    },
+    errorText: {
+        color: colors.error,
+        fontSize: 12,
+        marginTop: 6,
     },
     helperText: {
         color: colors.textMuted,
@@ -307,14 +403,14 @@ const styles = StyleSheet.create({
     saveButton: {
         backgroundColor: colors.primary,
         paddingVertical: 16,
-        borderRadius: 16,
+        borderRadius: 10,
         alignItems: 'center',
         marginTop: 10,
         shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 4,
+        shadowOpacity: 0.18,
+        shadowRadius: 6,
+        elevation: 3,
     },
     disabledButton: {
         opacity: 0.6,
@@ -324,17 +420,43 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         fontSize: 16,
     },
+    accountButton: {
+        flexDirection: 'row',
+        gap: 10,
+        backgroundColor: colors.surfaceHighlight,
+        borderWidth: 1,
+        borderColor: colors.border,
+        paddingVertical: 16,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 12,
+    },
+    accountButtonText: {
+        color: colors.text,
+        fontWeight: '800',
+        fontSize: 16,
+    },
     signOutButton: {
         backgroundColor: colors.error + '10',
         borderWidth: 1,
         borderColor: colors.error + '30',
         paddingVertical: 16,
-        borderRadius: 16,
+        borderRadius: 10,
         alignItems: 'center',
     },
     signOutButtonText: {
         color: colors.error,
         fontWeight: '800',
         fontSize: 16,
+    },
+    versionContainer: {
+        alignItems: 'center',
+        marginTop: 16,
+    },
+    versionText: {
+        color: colors.textMuted,
+        fontSize: 12,
     },
 });

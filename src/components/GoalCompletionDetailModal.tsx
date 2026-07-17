@@ -47,8 +47,8 @@ export default function GoalCompletionDetailModal({ visible, onClose, activityIt
 
             if (error) throw error;
             setCompletion(data);
-        } catch (err) {
-            console.error('Error fetching completion:', err);
+        } catch {
+            // Non-critical error
         } finally {
             setLoading(false);
         }

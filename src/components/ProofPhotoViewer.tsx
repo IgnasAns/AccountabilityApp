@@ -10,12 +10,110 @@ import {
     Pressable,
     Platform,
 } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+    useSharedValue,
+    useAnimatedStyle,
+    withSpring,
+    runOnJS,
+} from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { colors } from '../theme/colors';
 
 interface ProofPhotoViewerProps {
     photoUrl: string | null | undefined;
     size?: 'small' | 'medium';
+}
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const MAX_SCALE = 4;
+const MIN_SCALE = 1;
+
+function ZoomableImage({ uri, onClose }: { uri: string; onClose: () => void }) {
+    const scale = useSharedValue(1);
+    const savedScale = useSharedValue(1);
+    const translateX = useSharedValue(0);
+    const translateY = useSharedValue(0);
+    const savedTranslateX = useSharedValue(0);
+    const savedTranslateY = useSharedValue(0);
+
+    const pinchGesture = Gesture.Pinch()
+        .onUpdate((e) => {
+            scale.value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, savedScale.value * e.scale));
+        })
+        .onEnd(() => {
+            savedScale.value = scale.value;
+            if (scale.value < 1.1) {
+                scale.value = withSpring(1);
+                savedScale.value = 1;
+                translateX.value = withSpring(0);
+                translateY.value = withSpring(0);
+                savedTranslateX.value = 0;
+                savedTranslateY.value = 0;
+            }
+        });
+
+    const panGesture = Gesture.Pan()
+        .onUpdate((e) => {
+            if (scale.value > 1) {
+                translateX.value = savedTranslateX.value + e.translationX;
+                translateY.value = savedTranslateY.value + e.translationY;
+            }
+        })
+        .onEnd(() => {
+            savedTranslateX.value = translateX.value;
+            savedTranslateY.value = translateY.value;
+        });
+
+    const doubleTapGesture = Gesture.Tap()
+        .numberOfTaps(2)
+        .onEnd(() => {
+            if (scale.value > 1) {
+                scale.value = withSpring(1);
+                savedScale.value = 1;
+                translateX.value = withSpring(0);
+                translateY.value = withSpring(0);
+                savedTranslateX.value = 0;
+                savedTranslateY.value = 0;
+            } else {
+                scale.value = withSpring(2);
+                savedScale.value = 2;
+            }
+        });
+
+    const singleTapGesture = Gesture.Tap()
+        .numberOfTaps(1)
+        .onEnd(() => {
+            if (scale.value <= 1) {
+                runOnJS(onClose)();
+            }
+        });
+
+    const composedGesture = Gesture.Race(
+        Gesture.Simultaneous(pinchGesture, panGesture),
+        doubleTapGesture,
+        singleTapGesture
+    );
+
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [
+            { translateX: translateX.value },
+            { translateY: translateY.value },
+            { scale: scale.value },
+        ],
+    }));
+
+    return (
+        <GestureDetector gesture={composedGesture}>
+            <Animated.View style={styles.gestureContainer}>
+                <Animated.Image
+                    source={{ uri }}
+                    style={[styles.fullscreenImage, animatedStyle]}
+                    resizeMode="contain"
+                />
+            </Animated.View>
+        </GestureDetector>
+    );
 }
 
 export default function ProofPhotoViewer({ photoUrl, size = 'small' }: ProofPhotoViewerProps) {
@@ -55,25 +153,24 @@ export default function ProofPhotoViewer({ photoUrl, size = 'small' }: ProofPhot
                 onRequestClose={() => setShowFullscreen(false)}
                 statusBarTranslucent
             >
-                <Pressable
-                    style={styles.fullscreenContainer}
-                    onPress={() => setShowFullscreen(false)}
-                >
+                <View style={styles.fullscreenContainer}>
                     {Platform.OS === 'ios' ? (
                         <BlurView intensity={30} style={StyleSheet.absoluteFill} tint="dark" />
                     ) : (
                         <View style={[StyleSheet.absoluteFill, styles.androidOverlay]} />
                     )}
 
-                    <View style={styles.imageWrapper}>
-                        <Image
-                            source={{ uri: photoUrl }}
-                            style={styles.fullscreenImage}
-                            resizeMode="contain"
-                        />
-                        <View style={styles.proofBadge}>
-                            <Text style={styles.proofBadgeText}>📸 Proof Photo</Text>
-                        </View>
+                    <ZoomableImage
+                        uri={photoUrl}
+                        onClose={() => setShowFullscreen(false)}
+                    />
+
+                    <View style={styles.proofBadge}>
+                        <Text style={styles.proofBadgeText}>📸 Proof Photo</Text>
+                    </View>
+
+                    <View style={styles.zoomHint}>
+                        <Text style={styles.zoomHintText}>Pinch to zoom · Double tap to toggle</Text>
                     </View>
 
                     <TouchableOpacity
@@ -82,13 +179,11 @@ export default function ProofPhotoViewer({ photoUrl, size = 'small' }: ProofPhot
                     >
                         <Text style={styles.closeButtonText}>✕</Text>
                     </TouchableOpacity>
-                </Pressable>
+                </View>
             </Modal>
         </>
     );
 }
-
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const styles = StyleSheet.create({
     thumbnailContainer: {
@@ -120,19 +215,19 @@ const styles = StyleSheet.create({
     androidOverlay: {
         backgroundColor: 'rgba(0, 0, 0, 0.95)',
     },
-    imageWrapper: {
-        width: screenWidth * 0.95,
-        height: screenHeight * 0.7,
+    gestureContainer: {
+        width: SCREEN_WIDTH,
+        height: SCREEN_HEIGHT * 0.7,
         justifyContent: 'center',
         alignItems: 'center',
     },
     fullscreenImage: {
-        width: '100%',
-        height: '100%',
+        width: SCREEN_WIDTH * 0.95,
+        height: SCREEN_HEIGHT * 0.7,
     },
     proofBadge: {
         position: 'absolute',
-        bottom: 20,
+        bottom: 60,
         backgroundColor: colors.surface,
         paddingHorizontal: 16,
         paddingVertical: 8,
@@ -142,6 +237,14 @@ const styles = StyleSheet.create({
         color: colors.text,
         fontSize: 14,
         fontWeight: '600',
+    },
+    zoomHint: {
+        position: 'absolute',
+        bottom: 30,
+    },
+    zoomHintText: {
+        color: colors.textMuted,
+        fontSize: 12,
     },
     closeButton: {
         position: 'absolute',

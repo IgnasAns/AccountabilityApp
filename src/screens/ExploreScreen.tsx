@@ -3,6 +3,7 @@ import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../theme/colors';
+import AppIcon, { AppIconName } from '../components/AppIcon';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -11,42 +12,42 @@ interface Props {
 const CHALLENGE_TEMPLATES = [
     {
         id: 'early-riser',
-        emoji: '🌅',
+        icon: 'weather-sunset-up' as AppIconName,
         title: 'Early Riser',
         description: 'Wake up before 7AM every day. Post a photo of your watch or sunrise.',
         defaultPenalty: 5,
     },
     {
         id: 'gym-pact',
-        emoji: '💪',
+        icon: 'dumbbell' as AppIconName,
         title: 'Gym Pact',
         description: 'Hit the gym 3 times a week. Post a selfie at the gym.',
         defaultPenalty: 10,
     },
     {
         id: 'reader',
-        emoji: '📚',
+        icon: 'book-open-page-variant-outline' as AppIconName,
         title: 'Daily Reader',
         description: 'Read 10 pages every day. Post a photo of the page you finished.',
         defaultPenalty: 5,
     },
     {
         id: 'no-sugar',
-        emoji: '🍬',
+        icon: 'candy-off-outline' as AppIconName,
         title: 'No Sugar',
         description: 'Avoid added sugar. If you slip up, you pay.',
         defaultPenalty: 20,
     },
     {
         id: 'hydrate',
-        emoji: '💧',
+        icon: 'water-outline' as AppIconName,
         title: 'Hydration Station',
         description: 'Drink 2L of water daily. Track it or pay up.',
         defaultPenalty: 2,
     },
     {
         id: 'steps',
-        emoji: '👣',
+        icon: 'shoe-print' as AppIconName,
         title: '10k Steps',
         description: 'Walk 10,000 steps every day. Screenshot your tracker.',
         defaultPenalty: 5,
@@ -82,7 +83,7 @@ export default function ExploreScreen({ navigation }: Props) {
                         >
                             <View style={styles.cardHeader}>
                                 <View style={styles.emojiContainer}>
-                                    <Text style={styles.emoji}>{template.emoji}</Text>
+                                    <AppIcon name={template.icon} size={25} color={colors.primary} />
                                 </View>
                                 <View style={styles.priceTag}>
                                     <Text style={styles.priceText}>€{template.defaultPenalty}</Text>
@@ -95,7 +96,8 @@ export default function ExploreScreen({ navigation }: Props) {
                             </Text>
 
                             <View style={styles.cardFooter}>
-                                <Text style={styles.startText}>Start Challenge →</Text>
+                                <Text style={styles.startText}>Start Challenge</Text>
+                                <AppIcon name="arrow-right" size={16} color={colors.primary} />
                             </View>
                         </TouchableOpacity>
                     ))}
@@ -136,16 +138,16 @@ const styles = StyleSheet.create({
     card: {
         width: '48%',
         backgroundColor: colors.surface,
-        borderRadius: 24,
+        borderRadius: 8,
         padding: 16,
         marginBottom: 16,
         borderWidth: 1,
         borderColor: colors.border,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 4,
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        elevation: 2,
     },
     cardHeader: {
         flexDirection: 'row',
@@ -156,13 +158,10 @@ const styles = StyleSheet.create({
     emojiContainer: {
         width: 48,
         height: 48,
-        borderRadius: 16,
-        backgroundColor: colors.surfaceHighlight,
+        borderRadius: 8,
+        backgroundColor: colors.primaryMuted,
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    emoji: {
-        fontSize: 24,
     },
     priceTag: {
         backgroundColor: colors.error + '20',
@@ -191,6 +190,7 @@ const styles = StyleSheet.create({
     cardFooter: {
         flexDirection: 'row',
         alignItems: 'center',
+        gap: 6,
     },
     startText: {
         fontSize: 14,

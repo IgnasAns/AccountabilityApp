@@ -87,8 +87,8 @@ export default function InviteCodeModal({
             setTimeout(() => {
                 checkmarkScale.setValue(0);
             }, 2000);
-        } catch (error) {
-            console.error('Failed to copy:', error);
+        } catch {
+            // Copy failed - non-critical
         }
     };
 

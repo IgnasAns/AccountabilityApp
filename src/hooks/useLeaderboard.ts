@@ -14,7 +14,7 @@ export function useLeaderboard(groupId: string) {
     const [error, setError] = useState<string | null>(null);
 
     const fetchLeaderboard = useCallback(async () => {
-        if (!user || !groupId || user.id === 'guest_user_id') {
+        if (!user || !groupId) {
             setLoading(false);
             return;
         }
@@ -39,9 +39,8 @@ export function useLeaderboard(groupId: string) {
             }
 
             setLeaderboard((data || []) as LeaderboardEntry[]);
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error fetching leaderboard:', err);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
         } finally {
             setLoading(false);
         }
@@ -103,7 +102,7 @@ export function useLeaderboard(groupId: string) {
             }
 
             // Build leaderboard
-            const entries: LeaderboardEntry[] = members.map((member: any) => {
+            const entries: LeaderboardEntry[] = members.map((member: { user_id: string; profile?: { name?: string; avatar_url?: string | null }; failure_count: number }) => {
                 const completions = completionCounts[member.user_id] || 0;
                 const maxStreak = Math.max(0, ...(goals || []).map(g => g.current_streak || 0));
                 const score = completions * 10 - member.failure_count * 5;
@@ -122,15 +121,14 @@ export function useLeaderboard(groupId: string) {
             // Sort by score
             entries.sort((a, b) => b.score - a.score);
             setLeaderboard(entries);
-        } catch (err: any) {
-            console.error('Manual leaderboard calculation error:', err);
+        } catch {
             setLeaderboard([]);
         }
     };
 
     // Fetch badges
     const fetchBadges = useCallback(async () => {
-        if (!user || !groupId || user.id === 'guest_user_id') return;
+        if (!user || !groupId) return;
 
         try {
             const { data, error: fetchError } = await supabase
@@ -141,15 +139,12 @@ export function useLeaderboard(groupId: string) {
 
             if (fetchError) {
                 // Table might not exist
-                if (!fetchError.message.includes('does not exist')) {
-                    console.error('Error fetching badges:', fetchError);
-                }
                 return;
             }
 
             setBadges((data || []) as UserBadge[]);
-        } catch (err) {
-            console.error('Error fetching badges:', err);
+        } catch {
+            // Non-critical
         }
     }, [user, groupId]);
 

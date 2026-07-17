@@ -6,16 +6,17 @@ import {
     TouchableOpacity,
     StyleSheet,
     FlatList,
-    ActivityIndicator,
     Image,
     KeyboardAvoidingView,
     Platform,
+    ActivityIndicator,
 } from 'react-native';
 import { formatDistanceToNow } from 'date-fns';
 import { colors } from '../theme/colors';
 import { useGoalComments } from '../hooks/useGoalComments';
 import { GoalCommentWithProfile } from '../types/database';
 import { safeHaptics } from '../utils/haptics';
+import { SkeletonListItem } from './Skeleton';
 
 interface Props {
     completionId: string;
@@ -106,7 +107,9 @@ export default function CommentsSection({ completionId, onCommentAdded, scrollEn
 
             {loading ? (
                 <View style={styles.loadingContainer}>
-                    <ActivityIndicator color={colors.primary} />
+                    {Array.from({ length: 3 }).map((_, i) => (
+                        <SkeletonListItem key={i} />
+                    ))}
                 </View>
             ) : comments.length === 0 ? (
                 <View style={styles.emptyContainer}>
@@ -136,7 +139,7 @@ export default function CommentsSection({ completionId, onCommentAdded, scrollEn
                     placeholderTextColor={colors.textMuted}
                     value={newComment}
                     onChangeText={setNewComment}
-                    maxLength={500}
+                    maxLength={300}
                     multiline
                 />
                 <TouchableOpacity

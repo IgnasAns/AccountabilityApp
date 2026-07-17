@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase, getNetBalance } from '../services/supabase';
 import { useAuth } from './useAuth';
 import { Group, GroupMember, GroupMemberWithProfile, GroupBalance } from '../types/database';
+import { DEFAULT_PAGE_SIZE, REQUEST_TIMEOUT_MS, CURRENCY_SYMBOL } from '../constants';
 
 export function useGroups() {
     const { user } = useAuth();
@@ -14,20 +15,10 @@ export function useGroups() {
     const fetchGroups = useCallback(async () => {
         if (!user) return;
 
-        // Guest mode support
-        if (user.id === 'guest_user_id') {
-            setLoading(false);
-            setGroups([]);
-            setGroupBalances([]);
-            setNetBalance(0);
-            return;
-        }
-
         let isMounted = true;
 
-        // Longer timeout to see actual error
         const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('REQUEST TIMED OUT after 60 seconds')), 60000)
+            setTimeout(() => reject(new Error('REQUEST TIMED OUT')), REQUEST_TIMEOUT_MS)
         );
 
         try {
@@ -68,8 +59,8 @@ export function useGroups() {
                     const rawGroup = m.groups;
                     // Extract avatars (max 3)
                     const memberAvatars = rawGroup.group_members
-                        ?.map((gm: any) => gm.profiles?.avatar_url)
-                        .filter((url: any) => typeof url === 'string') || [];
+                        ?.map((gm: { profiles: { avatar_url: string | null } | null }) => gm.profiles?.avatar_url)
+                        .filter((url: string | null | undefined): url is string => typeof url === 'string') || [];
 
                     return {
                         group: rawGroup,
@@ -86,7 +77,7 @@ export function useGroups() {
             };
 
             // Race against timeout
-            const result: any = await Promise.race([fetchData(), timeoutPromise]);
+            const result = await Promise.race([fetchData(), timeoutPromise]) as Awaited<ReturnType<typeof fetchData>>;
 
             if (isMounted) {
                 setGroups(result.groupsData);
@@ -94,16 +85,15 @@ export function useGroups() {
                 setNetBalance(result.net);
             }
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             if (isMounted) {
-                console.error('Error fetching groups:', err);
-                // Check for generic Supabase "fetch failed" to give better advice
-                if (err.message === 'Network request failed' || err.message?.includes('timed out')) {
+                const message = err instanceof Error ? err.message : String(err);
+                if (message === 'Network request failed' || message.includes('timed out')) {
                     setError('Connection timed out. Check your network.');
-                } else if (err.message && err.message.includes('infinite recursion')) {
+                } else if (message.includes('infinite recursion')) {
                     setError('Database Setup Incomplete. Run the SQL script from supabase/schema.sql in your Supabase Dashboard.');
                 } else {
-                    setError(err.message || 'Failed to load groups');
+                    setError(message || 'Failed to load groups');
                 }
             }
         } finally {
@@ -179,9 +169,9 @@ export function useGroups() {
         if (memberData && memberData.current_balance !== 0) {
             const balance = memberData.current_balance;
             if (balance < 0) {
-                throw new Error(`You owe €${Math.abs(balance).toFixed(2)} to other members. Please settle your debts before leaving.`);
+                throw new Error(`You owe ${CURRENCY_SYMBOL}${Math.abs(balance).toFixed(2)} to other members. Please settle your debts before leaving.`);
             } else {
-                throw new Error(`Other members owe you €${balance.toFixed(2)}. Please have them settle before you leave.`);
+                throw new Error(`Other members owe you ${CURRENCY_SYMBOL}${balance.toFixed(2)}. Please have them settle before you leave.`);
             }
         }
 
@@ -302,9 +292,8 @@ export function useGroupDetail(groupId: string) {
 
             // Supabase returns the joined data, which we assert to our defined type
             setMembers(membersData as unknown as GroupMemberWithProfile[] || []);
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error fetching group detail:', err);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to load group details');
         } finally {
             setLoading(false);
         }

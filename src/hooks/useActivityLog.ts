@@ -2,6 +2,32 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { useAuth } from './useAuth';
 import { ActivityLogWithProfile, ActivityEventType } from '../types/database';
+import { ACTIVITY_PAGE_SIZE, CURRENCY_SYMBOL } from '../constants';
+
+// Fields that should never be exposed to the client
+const SENSITIVE_METADATA_FIELDS = [
+    'ip_address',
+    'user_agent',
+    'device_id',
+    'device_info',
+    'location',
+    'coordinates',
+    'session_id',
+];
+
+/**
+ * Strip sensitive metadata from activity log entries before displaying to client.
+ */
+function sanitizeActivityMetadata(activity: ActivityLogWithProfile): ActivityLogWithProfile {
+    if (!activity.metadata) return activity;
+
+    const sanitized = { ...activity.metadata };
+    for (const field of SENSITIVE_METADATA_FIELDS) {
+        delete sanitized[field];
+    }
+
+    return { ...activity, metadata: sanitized };
+}
 
 export function useActivityLog(groupId?: string) {
     const { user } = useAuth();
@@ -11,13 +37,6 @@ export function useActivityLog(groupId?: string) {
 
     const fetchActivities = useCallback(async () => {
         if (!user) return;
-
-        // Guest mode support
-        if (user.id === 'guest_user_id') {
-            setLoading(false);
-            setActivities([]);
-            return;
-        }
 
         try {
             setLoading(true);
@@ -30,7 +49,7 @@ export function useActivityLog(groupId?: string) {
                     user:profiles!activity_log_user_id_fkey(*)
                 `)
                 .order('created_at', { ascending: false })
-                .limit(100);
+                .limit(ACTIVITY_PAGE_SIZE);
 
             if (groupId) {
                 query = query.eq('group_id', groupId);
@@ -47,10 +66,11 @@ export function useActivityLog(groupId?: string) {
                 throw fetchError;
             }
 
-            setActivities((data || []) as ActivityLogWithProfile[]);
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error fetching activity log:', err);
+            setActivities(
+                ((data || []) as ActivityLogWithProfile[]).map(sanitizeActivityMetadata)
+            );
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "An error occurred");
         } finally {
             setLoading(false);
         }
@@ -62,7 +82,7 @@ export function useActivityLog(groupId?: string) {
 
     // Subscribe to real-time updates
     useEffect(() => {
-        if (!user || !groupId || user.id === 'guest_user_id') return;
+        if (!user || !groupId) return;
 
         const channel = supabase
             .channel(`activity:${groupId}`)
@@ -86,7 +106,7 @@ export function useActivityLog(groupId?: string) {
                         .single();
 
                     if (data) {
-                        setActivities((prev) => [data as ActivityLogWithProfile, ...prev]);
+                        setActivities((prev) => [sanitizeActivityMetadata(data as ActivityLogWithProfile), ...prev]);
                     }
                 }
             )
@@ -114,7 +134,7 @@ export function useActivityLog(groupId?: string) {
             case 'failure_logged':
                 return `${userName} logged a failure ${metadata.description ? `- "${metadata.description}"` : ''}`;
             case 'debt_settled':
-                return `${userName} settled a debt of €${metadata.amount?.toFixed(2) || '0.00'}`;
+                return `${userName} settled a debt of ${CURRENCY_SYMBOL}${metadata.amount?.toFixed(2) || '0.00'}`;
             case 'member_joined':
                 return `${metadata.member_name || userName} joined the group`;
             case 'member_left':

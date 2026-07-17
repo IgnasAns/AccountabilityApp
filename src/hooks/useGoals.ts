@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { useAuth } from './useAuth';
-import { Goal, GoalCompletion, GoalWithCompletions, GoalStatus, GoalCategory } from '../types/database';
+import { Goal, GoalCompletion, GoalWithCompletions, GoalStatus, GoalCategory, Profile } from '../types/database';
+import { DEFAULT_PAGE_SIZE } from '../constants';
 
 export function useGoals(groupId: string) {
     const { user } = useAuth();
@@ -12,7 +13,7 @@ export function useGoals(groupId: string) {
 
     // Process overdue goals (auto-failure at midnight check)
     const processOverdueGoals = useCallback(async () => {
-        if (!user || !groupId || user.id === 'guest_user_id') return;
+        if (!user || !groupId) return;
 
         try {
             const { data, error: rpcError } = await supabase.rpc('process_overdue_goals', {
@@ -21,9 +22,6 @@ export function useGoals(groupId: string) {
 
             if (rpcError) {
                 // Function might not exist yet - that's OK, just skip
-                if (!rpcError.message.includes('does not exist')) {
-                    console.warn('Overdue processing error:', rpcError.message);
-                }
                 return;
             }
 
@@ -39,13 +37,6 @@ export function useGoals(groupId: string) {
 
     const fetchGoals = useCallback(async () => {
         if (!user || !groupId) return;
-
-        // Guest mode support
-        if (user.id === 'guest_user_id') {
-            setLoading(false);
-            setGoals([]);
-            return;
-        }
 
         try {
             setLoading(true);
@@ -71,7 +62,7 @@ export function useGoals(groupId: string) {
             if (goalsError) throw goalsError;
 
             // Fetch completions for all goals
-            const goalIds = (goalsData || []).map((g: any) => g.id);
+            const goalIds = (goalsData || []).map((g: { id: string }) => g.id);
 
             let completionsData: GoalCompletion[] = [];
             if (goalIds.length > 0) {
@@ -79,22 +70,23 @@ export function useGoals(groupId: string) {
                     .from('goal_completions')
                     .select('*')
                     .in('goal_id', goalIds)
-                    .order('completed_at', { ascending: false });
+                    .order('completed_at', { ascending: false })
+                    .limit(DEFAULT_PAGE_SIZE);
 
                 if (completionsError) throw completionsError;
                 completionsData = completions || [];
             }
 
             // Merge completions into goals
-            const goalsWithCompletions: GoalWithCompletions[] = (goalsData || []).map((goal: any) => ({
+            // Merge completions into goals
+            const goalsWithCompletions: GoalWithCompletions[] = (goalsData || []).map((goal: Goal & { creator?: Profile }) => ({
                 ...goal,
                 completions: completionsData.filter(c => c.goal_id === goal.id),
             }));
 
             setGoals(goalsWithCompletions);
-        } catch (err: any) {
-            setError(err.message);
-            console.error('Error fetching goals:', err);
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Failed to load goals');
         } finally {
             setLoading(false);
         }
@@ -236,7 +228,10 @@ export function useGoals(groupId: string) {
 
         const now = new Date();
         const isOverdue = nextDeadline < now;
-        const daysRemaining = Math.ceil((nextDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const rawDaysRemaining = Math.ceil((nextDeadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const daysRemaining = lastCompletion
+            ? Math.min(goal.frequency_days, rawDaysRemaining)
+            : rawDaysRemaining;
 
         return {
             goal_id: goal.id,
@@ -355,8 +350,7 @@ export function useGoals(groupId: string) {
 
             await fetchGoals();
             return true;
-        } catch (err) {
-            console.error('Error toggling goal pause:', err);
+        } catch {
             return false;
         }
     }
@@ -388,8 +382,7 @@ export function useGoals(groupId: string) {
 
             await fetchGoals();
             return true;
-        } catch (err) {
-            console.error('Error updating goal:', err);
+        } catch {
             return false;
         }
     }

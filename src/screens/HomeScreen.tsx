@@ -1,20 +1,21 @@
 import React, { useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, StyleSheet, Image, Dimensions } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl, StyleSheet, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../hooks/useAuth';
 import { useGroups } from '../hooks/useGroups';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../theme/colors';
-
-const { width } = Dimensions.get('window');
+import { SkeletonGroupCard } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
+import AppIcon from '../components/AppIcon';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
 }
 
 export default function HomeScreen({ navigation }: Props) {
-    const { profile, signOut } = useAuth();
+    const { profile } = useAuth();
     const { groups, groupBalances, netBalance, loading, refetch, error } = useGroups();
     const [refreshing, setRefreshing] = React.useState(false);
     const [longLoading, setLongLoading] = React.useState(false);
@@ -62,8 +63,22 @@ export default function HomeScreen({ navigation }: Props) {
 
     if (loading && !refreshing && !longLoading) {
         return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={colors.primary} />
+            <View style={[styles.container, { paddingTop: insets.top }]}>
+                <ScrollView
+                    style={styles.scrollView}
+                    contentContainerStyle={styles.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                >
+                    {/* Skeleton Balance */}
+                    <View style={{ alignItems: 'center', marginTop: 24, marginBottom: 32 }}>
+                        <View style={{ backgroundColor: colors.surfaceHighlight, width: 160, height: 42, borderRadius: 8 }} />
+                        <View style={{ backgroundColor: colors.surfaceHighlight, width: 100, height: 13, borderRadius: 6, marginTop: 8 }} />
+                    </View>
+                    {/* Skeleton Groups */}
+                    <SkeletonGroupCard />
+                    <SkeletonGroupCard />
+                    <SkeletonGroupCard />
+                </ScrollView>
             </View>
         );
     }
@@ -87,7 +102,8 @@ export default function HomeScreen({ navigation }: Props) {
                 {/* Error Banner */}
                 {error && (
                     <View style={styles.errorBanner}>
-                        <Text style={styles.errorBannerText}>⚠️ {error}</Text>
+                        <AppIcon name="alert-circle-outline" size={18} color={colors.error} />
+                        <Text style={styles.errorBannerText}>{error}</Text>
                         <TouchableOpacity onPress={onRefresh}>
                             <Text style={styles.errorBannerRetry}>Retry</Text>
                         </TouchableOpacity>
@@ -96,6 +112,7 @@ export default function HomeScreen({ navigation }: Props) {
 
                 {/* Main Balance Section */}
                 <View style={styles.balanceHeader}>
+                    <Text style={styles.greeting}>Hi {profile?.name?.split(' ')[0] || 'mate'}</Text>
                     <Text style={[styles.balanceAmount, { color: getBalanceColor(netBalance) }]}>
                         {netBalance >= 0 ? '+' : '-'}{formatBalance(netBalance)}
                     </Text>
@@ -109,7 +126,7 @@ export default function HomeScreen({ navigation }: Props) {
                         style={styles.actionButton}
                     >
                         <View style={styles.actionIconContainer}>
-                            <Text style={styles.actionIcon}>➕</Text>
+                            <AppIcon name="plus-circle-outline" size={24} color={colors.primary} />
                         </View>
                         <Text style={styles.actionLabel}>Create</Text>
                     </TouchableOpacity>
@@ -119,7 +136,7 @@ export default function HomeScreen({ navigation }: Props) {
                         style={styles.actionButton}
                     >
                         <View style={styles.actionIconContainer}>
-                            <Text style={styles.actionIcon}>🔗</Text>
+                            <AppIcon name="link-variant" size={24} color={colors.primary} />
                         </View>
                         <Text style={styles.actionLabel}>Join</Text>
                     </TouchableOpacity>
@@ -129,7 +146,7 @@ export default function HomeScreen({ navigation }: Props) {
                         style={styles.actionButton}
                     >
                         <View style={styles.actionIconContainer}>
-                            <Text style={styles.actionIcon}>👤</Text>
+                            <AppIcon name="account-circle-outline" size={24} color={colors.primary} />
                         </View>
                         <Text style={styles.actionLabel}>Profile</Text>
                     </TouchableOpacity>
@@ -140,16 +157,13 @@ export default function HomeScreen({ navigation }: Props) {
                     <Text style={styles.sectionTitle}>Accountability Groups</Text>
 
                     {groups.length === 0 ? (
-                        <View style={styles.emptyCard}>
-                            <Text style={styles.emptyEmoji}>🎯</Text>
-                            <Text style={styles.emptyText}>No active groups yet.</Text>
-                            <TouchableOpacity
-                                style={styles.emptyButton}
-                                onPress={() => navigation.navigate('CreateGroup')}
-                            >
-                                <Text style={styles.emptyButtonText}>Start a Group</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <EmptyState
+                            icon="target"
+                            title="No active groups yet"
+                            subtitle="Create a group or join one with an invite code to start tracking goals with friends."
+                            actionLabel="Start a Group"
+                            onAction={() => navigation.navigate('CreateGroup')}
+                        />
                     ) : (
                         groupBalances.map(({ group, balance }) => (
                             <TouchableOpacity
@@ -218,9 +232,9 @@ export default function HomeScreen({ navigation }: Props) {
                 <View style={styles.infoSection}>
                     <Text style={styles.infoHeading}>How it works</Text>
                     <View style={styles.infoCard}>
-                        <InfoItem emoji="👋" title="Join or Create" desc="Invite your mates to a new group" />
-                        <InfoItem emoji="📉" title="Pact Failure" desc="Log a slip-up, and everyone gets paid" />
-                        <InfoItem emoji="🧾" title="Ledger" desc="Track who owes who and settle up" last />
+                        <InfoItem icon="account-multiple-plus-outline" title="Join or Create" desc="Invite your mates to a new group" />
+                        <InfoItem icon="cash-minus" title="Pact Failure" desc="Log a slip-up, and everyone gets paid" />
+                        <InfoItem icon="script-text-outline" title="Ledger" desc="Track who owes who and settle up" last />
                     </View>
                 </View>
 
@@ -230,10 +244,12 @@ export default function HomeScreen({ navigation }: Props) {
     );
 }
 
-function InfoItem({ emoji, title, desc, last }: { emoji: string; title: string; desc: string; last?: boolean }) {
+function InfoItem({ icon, title, desc, last }: { icon: React.ComponentProps<typeof AppIcon>['name']; title: string; desc: string; last?: boolean }) {
     return (
         <View style={[styles.infoItem, last && { borderBottomWidth: 0 }]}>
-            <Text style={styles.infoItemEmoji}>{emoji}</Text>
+            <View style={styles.infoItemIcon}>
+                <AppIcon name={icon} size={20} color={colors.primary} />
+            </View>
             <View style={{ flex: 1 }}>
                 <Text style={styles.infoItemTitle}>{title}</Text>
                 <Text style={styles.infoItemDesc}>{desc}</Text>
@@ -263,9 +279,9 @@ const styles = StyleSheet.create({
     errorBanner: {
         backgroundColor: colors.error + '20',
         padding: 12,
-        borderRadius: 12,
+        borderRadius: 8,
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        gap: 10,
         alignItems: 'center',
         marginBottom: 20,
         borderWidth: 1,
@@ -283,14 +299,24 @@ const styles = StyleSheet.create({
         marginLeft: 10,
     },
     balanceHeader: {
-        alignItems: 'center',
-        marginTop: 24, // Reduced
-        marginBottom: 32, // Reduced
+        alignItems: 'flex-start',
+        marginTop: 18,
+        marginBottom: 28,
+        backgroundColor: colors.surface,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        padding: 18,
+    },
+    greeting: {
+        color: colors.textMuted,
+        fontSize: 14,
+        fontWeight: '700',
+        marginBottom: 8,
     },
     balanceAmount: {
-        fontSize: 42, // Reduced from 56
+        fontSize: 40,
         fontWeight: '800',
-        letterSpacing: -1,
     },
     balanceLabel: {
         fontSize: 13,
@@ -302,8 +328,8 @@ const styles = StyleSheet.create({
     actionRow: {
         flexDirection: 'row',
         justifyContent: 'space-around',
-        marginBottom: 32, // Reduced
-        paddingHorizontal: 20,
+        marginBottom: 28,
+        paddingHorizontal: 8,
     },
     actionButton: {
         alignItems: 'center',
@@ -311,7 +337,7 @@ const styles = StyleSheet.create({
     actionIconContainer: {
         width: 48, // Reduced from 56
         height: 48,
-        borderRadius: 24,
+        borderRadius: 12,
         backgroundColor: colors.surface,
         justifyContent: 'center',
         alignItems: 'center',
@@ -323,9 +349,6 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 2,
-    },
-    actionIcon: {
-        fontSize: 20, // Reduced
     },
     actionLabel: {
         color: colors.textMuted,
@@ -346,16 +369,16 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: colors.surface,
-        borderRadius: 20, // Slightly tighter radii
-        padding: 12, // Reduced padding
+        borderRadius: 8,
+        padding: 12,
         marginBottom: 10,
         borderWidth: 1,
         borderColor: colors.border,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15, // Softer shadow
-        shadowRadius: 6,
-        elevation: 3,
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+        elevation: 2,
     },
     groupImageContainer: {
         marginRight: 12, // Reduced margin
@@ -363,7 +386,7 @@ const styles = StyleSheet.create({
     groupImage: {
         width: 48, // Reduced from 60
         height: 48,
-        borderRadius: 16,
+        borderRadius: 8,
     },
     memberBubblesContainer: {
         position: 'absolute',
@@ -383,7 +406,7 @@ const styles = StyleSheet.create({
     groupImagePlaceholder: {
         width: 48, // Reduced
         height: 48,
-        borderRadius: 16,
+        borderRadius: 8,
         justifyContent: 'center',
         alignItems: 'center',
     },
@@ -420,7 +443,7 @@ const styles = StyleSheet.create({
     },
     emptyCard: {
         backgroundColor: colors.surface,
-        borderRadius: 20,
+        borderRadius: 8,
         padding: 24,
         alignItems: 'center',
         borderWidth: 1,
@@ -439,7 +462,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.primary,
         paddingHorizontal: 20,
         paddingVertical: 10,
-        borderRadius: 12,
+        borderRadius: 8,
     },
     emptyButtonText: {
         color: colors.text,
@@ -461,7 +484,7 @@ const styles = StyleSheet.create({
     },
     infoCard: {
         backgroundColor: colors.surface,
-        borderRadius: 20,
+        borderRadius: 8,
         padding: 16,
         borderWidth: 1,
         borderColor: colors.border,
@@ -473,8 +496,13 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
     },
-    infoItemEmoji: {
-        fontSize: 20,
+    infoItemIcon: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        backgroundColor: colors.primaryMuted,
+        justifyContent: 'center',
+        alignItems: 'center',
         marginRight: 12,
     },
     infoItemTitle: {

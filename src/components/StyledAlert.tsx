@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { colors } from '../theme/colors';
+import AppIcon, { AppIconName } from './AppIcon';
 
 interface AlertButton {
     text: string;
@@ -22,7 +23,7 @@ interface AlertConfig {
     title: string;
     message?: string;
     buttons?: AlertButton[];
-    icon?: string;
+    icon?: AppIconName;
 }
 
 interface AlertContextType {
@@ -34,7 +35,6 @@ const AlertContext = createContext<AlertContextType | null>(null);
 export function useStyledAlert() {
     const context = useContext(AlertContext);
     if (!context) {
-        // If used outside provider, fallback to using the static method
         return {
             showAlert: (config: AlertConfig) => {
                 StyledAlert.alert(config.title, config.message, config.buttons);
@@ -44,14 +44,13 @@ export function useStyledAlert() {
     return context;
 }
 
-// Static alert queue for use outside React components
 let staticShowAlert: ((config: AlertConfig) => void) | null = null;
 
 export function AlertProvider({ children }: { children: ReactNode }) {
     const [visible, setVisible] = useState(false);
     const [config, setConfig] = useState<AlertConfig | null>(null);
     const fadeAnim = useState(new Animated.Value(0))[0];
-    const scaleAnim = useState(new Animated.Value(0.9))[0];
+    const scaleAnim = useState(new Animated.Value(0.96))[0];
 
     const showAlert = useCallback((alertConfig: AlertConfig) => {
         setConfig(alertConfig);
@@ -59,19 +58,18 @@ export function AlertProvider({ children }: { children: ReactNode }) {
         Animated.parallel([
             Animated.timing(fadeAnim, {
                 toValue: 1,
-                duration: 200,
+                duration: 160,
                 useNativeDriver: true,
             }),
             Animated.spring(scaleAnim, {
                 toValue: 1,
-                damping: 20,
-                stiffness: 300,
+                damping: 22,
+                stiffness: 360,
                 useNativeDriver: true,
             }),
         ]).start();
     }, [fadeAnim, scaleAnim]);
 
-    // Register static method
     React.useEffect(() => {
         staticShowAlert = showAlert;
         return () => {
@@ -83,12 +81,12 @@ export function AlertProvider({ children }: { children: ReactNode }) {
         Animated.parallel([
             Animated.timing(fadeAnim, {
                 toValue: 0,
-                duration: 150,
+                duration: 130,
                 useNativeDriver: true,
             }),
             Animated.timing(scaleAnim, {
-                toValue: 0.9,
-                duration: 150,
+                toValue: 0.96,
+                duration: 130,
                 useNativeDriver: true,
             }),
         ]).start(() => {
@@ -99,32 +97,36 @@ export function AlertProvider({ children }: { children: ReactNode }) {
 
     const handleButtonPress = useCallback((button: AlertButton) => {
         hideAlert();
-        // Delay the callback to allow animation to complete
         setTimeout(() => {
             button.onPress?.();
         }, 150);
     }, [hideAlert]);
 
-    const getIcon = () => {
+    const getIcon = (): AppIconName => {
         if (config?.icon) return config.icon;
         const title = config?.title?.toLowerCase() || '';
-        if (title.includes('error') || title.includes('failed')) return '❌';
-        if (title.includes('success') || title.includes('created') || title.includes('joined')) return '🎉';
-        if (title.includes('warning')) return '⚠️';
-        if (title.includes('guest')) return '👤';
-        if (title.includes('setup') || title.includes('permission')) return '🔧';
-        return '💬';
+        if (title.includes('error') || title.includes('failed')) return 'alert-circle-outline';
+        if (title.includes('success') || title.includes('created') || title.includes('joined') || title.includes('updated')) {
+            return 'check-circle-outline';
+        }
+        if (title.includes('warning') || title.includes('slow down')) return 'alert-outline';
+        if (title.includes('guest')) return 'account-outline';
+        if (title.includes('setup') || title.includes('permission')) return 'cog-outline';
+        return 'message-text-outline';
     };
 
-    const getIconBackground = () => {
+    const getIconColor = () => {
         const title = config?.title?.toLowerCase() || '';
         if (title.includes('error') || title.includes('failed')) return colors.error;
-        if (title.includes('success') || title.includes('created') || title.includes('joined')) return colors.success;
-        if (title.includes('warning')) return colors.warning;
+        if (title.includes('success') || title.includes('created') || title.includes('joined') || title.includes('updated')) {
+            return colors.success;
+        }
+        if (title.includes('warning') || title.includes('slow down')) return colors.warning;
         return colors.primary;
     };
 
     const buttons = config?.buttons || [{ text: 'OK', style: 'default' as const }];
+    const iconColor = getIconColor();
 
     return (
         <AlertContext.Provider value={{ showAlert }}>
@@ -154,23 +156,16 @@ export function AlertProvider({ children }: { children: ReactNode }) {
                         ]}
                     >
                         <View style={styles.alertContent}>
-                            {/* Glow effect behind icon */}
-                            <View style={[styles.iconGlow, { backgroundColor: getIconBackground() }]} />
-
-                            {/* Icon */}
-                            <View style={[styles.iconContainer, { backgroundColor: `${getIconBackground()}20` }]}>
-                                <Text style={styles.iconText}>{getIcon()}</Text>
+                            <View style={[styles.iconContainer, { backgroundColor: `${iconColor}18` }]}>
+                                <AppIcon name={getIcon()} size={34} color={iconColor} />
                             </View>
 
-                            {/* Title */}
-                            <Text style={styles.title}>{config?.title}</Text>
+                            <Text selectable={false} style={styles.title}>{config?.title}</Text>
 
-                            {/* Message */}
                             {config?.message && (
-                                <Text style={styles.message}>{config.message}</Text>
+                                <Text selectable={false} style={styles.message}>{config.message}</Text>
                             )}
 
-                            {/* Buttons */}
                             <View style={[
                                 styles.buttonContainer,
                                 buttons.length === 1 && styles.singleButtonContainer
@@ -190,9 +185,9 @@ export function AlertProvider({ children }: { children: ReactNode }) {
                                                 !isCancel && !isDestructive && styles.primaryButton,
                                             ]}
                                             onPress={() => handleButtonPress(button)}
-                                            activeOpacity={0.7}
+                                            activeOpacity={0.75}
                                         >
-                                            <Text style={[
+                                            <Text selectable={false} style={[
                                                 styles.buttonText,
                                                 isCancel && styles.cancelButtonText,
                                                 !isCancel && styles.primaryButtonText,
@@ -211,13 +206,11 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     );
 }
 
-// Static method for use similar to Alert.alert()
 export const StyledAlert = {
     alert: (title: string, message?: string, buttons?: AlertButton[]) => {
         if (staticShowAlert) {
             staticShowAlert({ title, message, buttons });
         } else {
-            // Fallback to native Alert if provider not mounted
             const nativeAlert = require('react-native').Alert;
             nativeAlert.alert(title, message, buttons);
         }
@@ -232,7 +225,7 @@ const styles = StyleSheet.create({
         padding: 24,
     },
     androidOverlay: {
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
+        backgroundColor: 'rgba(0, 0, 0, 0.72)',
     },
     alertContainer: {
         width: '100%',
@@ -240,49 +233,40 @@ const styles = StyleSheet.create({
     },
     alertContent: {
         backgroundColor: colors.surface,
-        borderRadius: 24,
-        padding: 28,
+        borderRadius: 14,
+        padding: 24,
         alignItems: 'center',
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 24,
-        elevation: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.28,
+        shadowRadius: 18,
+        elevation: 12,
         borderWidth: 1,
         borderColor: colors.border,
     },
-    iconGlow: {
-        position: 'absolute',
-        top: -20,
-        width: 100,
-        height: 100,
-        borderRadius: 50,
-        opacity: 0.15,
-    },
     iconContainer: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
+        width: 58,
+        height: 58,
+        borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 20,
-    },
-    iconText: {
-        fontSize: 36,
+        marginBottom: 18,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     title: {
         color: colors.text,
-        fontSize: 22,
-        fontWeight: 'bold',
+        fontSize: 20,
+        fontWeight: '800',
         textAlign: 'center',
-        marginBottom: 12,
+        marginBottom: 10,
     },
     message: {
         color: colors.textMuted,
         fontSize: 15,
         textAlign: 'center',
         lineHeight: 22,
-        marginBottom: 28,
+        marginBottom: 24,
     },
     buttonContainer: {
         flexDirection: 'row',
@@ -296,7 +280,7 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingVertical: 14,
         paddingHorizontal: 24,
-        borderRadius: 14,
+        borderRadius: 10,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -316,13 +300,13 @@ const styles = StyleSheet.create({
         backgroundColor: colors.primary,
         shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
+        shadowOpacity: 0.22,
         shadowRadius: 8,
         elevation: 4,
     },
     buttonText: {
         fontSize: 16,
-        fontWeight: '600',
+        fontWeight: '700',
     },
     cancelButtonText: {
         color: colors.textMuted,

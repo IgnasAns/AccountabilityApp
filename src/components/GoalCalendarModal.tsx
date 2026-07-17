@@ -113,7 +113,7 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
     const markedDates = useMemo(() => {
         if (!goal) return {};
 
-        const marks: { [key: string]: any } = {};
+        const marks: { [key: string]: { marked?: boolean; dotColor?: string; selected?: boolean; selectedColor?: string; customStyles?: { container: { backgroundColor: string } } } } = {};
 
         // Group completions by date and count
         const dateCounts = new Map<string, number>();

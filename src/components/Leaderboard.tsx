@@ -11,6 +11,7 @@ import {
 import { colors } from '../theme/colors';
 import { useLeaderboard, LeaderboardPeriod } from '../hooks/useLeaderboard';
 import { useAuth } from '../hooks/useAuth';
+import EmptyState from './EmptyState';
 
 interface Props {
     groupId: string;
@@ -120,11 +121,11 @@ export default function Leaderboard({ groupId, showPeriodSelector = true, onMemb
             {/* Leaderboard List */}
             <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
                 {leaderboard.length === 0 ? (
-                    <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyIcon}>🏆</Text>
-                        <Text style={styles.emptyText}>No rankings yet</Text>
-                        <Text style={styles.emptySubtext}>Complete goals to earn points!</Text>
-                    </View>
+                    <EmptyState
+                        emoji="🏆"
+                        title="No rankings yet"
+                        subtitle="Complete goals to earn points and appear on the leaderboard!"
+                    />
                 ) : (
                     leaderboard.map((entry, index) => {
                         const rank = index + 1;

@@ -59,12 +59,11 @@ export default function LogFailureModal({
                 try {
                     proofPhotoUrl = await uploadProofPhoto(photoUri, groupId);
                     setUploadProgress('');
-                } catch (uploadError: any) {
-                    console.error('Photo upload failed:', uploadError);
+                } catch (uploadError: unknown) {
                     // Continue without photo if upload fails
                     StyledAlert.alert(
                         'Photo Upload Failed',
-                        'The failure will be logged without the photo. ' + uploadError.message
+                        'The failure will be logged without the photo. ' + (uploadError instanceof Error ? uploadError.message : 'Upload failed')
                     );
                 }
             }
@@ -92,9 +91,9 @@ export default function LogFailureModal({
                     StyledAlert.alert('Failure Logged', 'Your failure has been recorded.');
                 }
             }, 100);
-        } catch (error: any) {
+        } catch (error: unknown) {
             safeHaptics('error');
-            StyledAlert.alert('Error', error.message);
+            StyledAlert.alert('Error', (error instanceof Error ? error.message : "An error occurred"));
             setUploadProgress('');
         } finally {
             setLoading(false);
@@ -163,7 +162,7 @@ export default function LogFailureModal({
                                     <Text style={styles.benefitValue}>€{penaltyAmount.toFixed(2)}</Text>
                                 </View>
                                 <View style={styles.benefitRow}>
-                                    <Text style={styles.benefitLabel}>Number of members</Text>
+                                    <Text style={styles.benefitLabel}>Other members</Text>
                                     <Text style={styles.memberCountValue}>× {memberCount}</Text>
                                 </View>
                                 <View style={styles.separator} />

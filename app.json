@@ -2,7 +2,8 @@
   "expo": {
     "name": "Do It Mate!",
     "slug": "do-it-mate",
-    "version": "1.0.0",
+    "scheme": "doitmate",
+    "version": "1.0.10",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -23,7 +24,8 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0a0a"
       },
-      "package": "com.doitmate.app"
+      "package": "com.socialledger.app",
+      "versionCode": 14
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -32,6 +34,9 @@
       "eas": {
         "projectId": "your-project-id"
       }
-    }
+    },
+    "plugins": [
+      "expo-font"
+    ]
   }
 }
