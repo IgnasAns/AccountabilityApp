@@ -1,6 +1,6 @@
 {
   "name": "social-accountability-ledger",
-  "version": "1.0.0",
+  "version": "1.0.10",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -15,9 +15,9 @@
     "@react-navigation/bottom-tabs": "^6.5.20",
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/native-stack": "^6.9.26",
-    "@supabase/supabase-js": "^2.39.8",
+    "@supabase/supabase-js": "^2.110.7",
     "base64-arraybuffer": "^1.0.2",
-    "date-fns": "^4.1.0",
+    "date-fns": "^4.4.0",
     "expo": "~53.0.0",
     "expo-blur": "~14.1.5",
     "expo-clipboard": "~7.1.5",
@@ -30,7 +30,7 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.6",
-    "react-native-calendars": "^1.1313.0",
+    "react-native-calendars": "^1.1314.0",
     "react-native-gesture-handler": "~2.24.0",
     "react-native-get-random-values": "~1.11.0",
     "react-native-reanimated": "~3.17.4",
@@ -40,10 +40,9 @@
     "react-native-web": "^0.20.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0",
+    "@babel/core": "^7.29.7",
     "@types/react": "~19.0.10",
-    "react-native-dotenv": "^3.4.11",
-    "supabase": "^2.98.2",
+    "supabase": "^2.109.1",
     "typescript": "~5.8.3"
   },
   "private": true

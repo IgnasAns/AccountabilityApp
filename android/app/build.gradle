@@ -103,16 +103,14 @@ android {
             keyPassword 'android'
         }
         release {
+            // Credentials live in gitignored android/local.properties (MYAPP_UPLOAD_*).
             if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
                 storeFile file(MYAPP_UPLOAD_STORE_FILE)
                 storePassword MYAPP_UPLOAD_STORE_PASSWORD
                 keyAlias MYAPP_UPLOAD_KEY_ALIAS
                 keyPassword MYAPP_UPLOAD_KEY_PASSWORD
             } else {
-                storeFile file('my-upload-key.keystore')
-                storePassword 'password123'
-                keyAlias 'my-key-alias'
-                keyPassword 'password123'
+                throw new GradleException("Missing MYAPP_UPLOAD_* signing properties. Define them in android/local.properties (gitignored).")
             }
         }
     }

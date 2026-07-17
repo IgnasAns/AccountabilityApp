@@ -25,3 +25,12 @@ android/build/
 android/build_output*.txt
 android/local.properties
 android/app/my-upload-key.keystore
+android/app/debug.keystore
+*.keystore
+
+# Stale build artifacts
+dist-qa-web/
+qa-*.png
+
+# Local tool settings
+.claude/settings.local.json
