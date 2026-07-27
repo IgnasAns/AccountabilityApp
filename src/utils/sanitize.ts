@@ -12,14 +12,16 @@
  * Strip HTML tags and potentially dangerous characters
  */
 function stripHtml(input: string): string {
+    // Decode entities FIRST, then strip tags — otherwise '&lt;script&gt;' would
+    // survive the tag pass and decode into a literal '<script>' afterwards.
     return input
-        .replace(/<[^>]*>/g, '') // Remove HTML tags
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&amp;/g, '&')
         .replace(/&quot;/g, '"')
         .replace(/&#x27;/g, "'")
         .replace(/&#x2F;/g, '/')
+        .replace(/<[^>]*>/g, '') // Remove HTML tags
         .replace(/javascript:/gi, '') // Remove javascript: protocol
         .replace(/on\w+\s*=/gi, ''); // Remove event handlers
 }

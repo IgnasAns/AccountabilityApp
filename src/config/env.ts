@@ -30,14 +30,8 @@ function getEnvVar(key: string, fallback: string = ''): string {
 }
 
 export const env: EnvConfig = {
-    supabaseUrl: getEnvVar(
-        'EXPO_PUBLIC_SUPABASE_URL',
-        'https://bftyuzhigydeuabzkfvs.supabase.co' // Must be provided via environment
-    ),
-    supabaseAnonKey: getEnvVar(
-        'EXPO_PUBLIC_SUPABASE_ANON_KEY',
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJmdHl1emhpZ3lkZXVhYnprZnZzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc0MzU3OTQsImV4cCI6MjA4MzAxMTc5NH0.-y6wjwq2QeXfpLzBj_ejEUkFVV_BBdjBRvhLba6iOT4' // Must be provided via environment
-    ),
+    supabaseUrl: getEnvVar('EXPO_PUBLIC_SUPABASE_URL'),
+    supabaseAnonKey: getEnvVar('EXPO_PUBLIC_SUPABASE_ANON_KEY'),
     appEnv: (getEnvVar('EXPO_PUBLIC_APP_ENV', 'development') as EnvConfig['appEnv']),
     enableAnalytics: getEnvVar('EXPO_PUBLIC_ENABLE_ANALYTICS', 'false') === 'true',
     enableDebugLogs: getEnvVar('EXPO_PUBLIC_ENABLE_DEBUG', __DEV__ ? 'true' : 'false') === 'true',
