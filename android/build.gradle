@@ -33,5 +33,21 @@ allprojects {
   }
 }
 
+// Google Play requires target API 36 (Android 16) from 31 August 2026, or the
+// app can no longer ship updates at all.
+//
+// Expo's root plugin sets these with setIfNotExist() and defaults to 35, so
+// declaring them here wins — and avoids a full Expo SDK upgrade, which would
+// churn every native dependency for what is really a two-line requirement.
+//
+// This block must stay ABOVE `apply plugin: "expo-root-project"`, otherwise the
+// plugin has already installed its defaults by the time this runs.
+ext {
+  compileSdkVersion = 36
+  targetSdkVersion = 36
+  minSdkVersion = 24
+  buildToolsVersion = "36.0.0"
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"

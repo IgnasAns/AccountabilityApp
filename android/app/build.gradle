@@ -81,6 +81,27 @@ def enableProguardInReleaseBuilds = (findProperty('android.enableProguardInRelea
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+/**
+ * Signing credentials from android/local.properties (gitignored).
+ *
+ * Gradle does NOT load local.properties into project properties — the Android
+ * plugin only reads `sdk.dir` from it. The previous
+ * `project.hasProperty('MYAPP_UPLOAD_STORE_FILE')` check therefore always
+ * failed, which broke release builds after the credentials were moved out of
+ * build.gradle. Load the file explicitly instead.
+ *
+ * Falls back to project properties so CI can still pass them with -P or via
+ * ~/.gradle/gradle.properties.
+ */
+def signingProps = new Properties()
+def signingPropsFile = rootProject.file('local.properties')
+if (signingPropsFile.exists()) {
+    signingPropsFile.withInputStream { signingProps.load(it) }
+}
+def signingProp = { String key ->
+    signingProps.getProperty(key) ?: (project.hasProperty(key) ? project.property(key) : null)
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
 
@@ -92,8 +113,11 @@ android {
         applicationId 'com.socialledger.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 14
-        versionName "1.0.10"
+        // Kept in step with app.json manually: this is a bare project with a
+        // committed android/ directory, so app.json's version does NOT flow
+        // through unless `expo prebuild` is re-run.
+        versionCode 15
+        versionName "1.0.11"
     }
     signingConfigs {
         debug {
@@ -104,11 +128,11 @@ android {
         }
         release {
             // Credentials live in gitignored android/local.properties (MYAPP_UPLOAD_*).
-            if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
-                storeFile file(MYAPP_UPLOAD_STORE_FILE)
-                storePassword MYAPP_UPLOAD_STORE_PASSWORD
-                keyAlias MYAPP_UPLOAD_KEY_ALIAS
-                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+            if (signingProp('MYAPP_UPLOAD_STORE_FILE') != null) {
+                storeFile file(signingProp('MYAPP_UPLOAD_STORE_FILE'))
+                storePassword signingProp('MYAPP_UPLOAD_STORE_PASSWORD')
+                keyAlias signingProp('MYAPP_UPLOAD_KEY_ALIAS')
+                keyPassword signingProp('MYAPP_UPLOAD_KEY_PASSWORD')
             } else {
                 throw new GradleException("Missing MYAPP_UPLOAD_* signing properties. Define them in android/local.properties (gitignored).")
             }
