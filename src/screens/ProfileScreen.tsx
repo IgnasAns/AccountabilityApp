@@ -20,6 +20,7 @@ import { pickImage, uploadAvatar } from '../services/photoService';
 import { sanitizeName, sanitizeUrl } from '../utils/sanitize';
 import { safeHaptics } from '../utils/haptics';
 import AppIcon from '../components/AppIcon';
+import NotificationSettings from '../components/NotificationSettings';
 import appConfig from '../../app.json';
 
 // Declare window for web platform
@@ -32,12 +33,14 @@ interface Props {
 }
 
 export default function ProfileScreen({ navigation }: Props) {
-    const { profile, updateProfile, signOut, isGuest } = useAuth();
+    const { profile, updateProfile, signOut, deleteAccount, isGuest } = useAuth();
     const insets = useSafeAreaInsets();
     const [name, setName] = useState(profile?.name || '');
     const [paymentLink, setPaymentLink] = useState(profile?.payment_link || '');
     const [loading, setLoading] = useState(false);
     const [showLogoutModal, setShowLogoutModal] = useState(false);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deleting, setDeleting] = useState(false);
     const [errors, setErrors] = useState<{ name?: string; paymentLink?: string }>({});
 
     const validateForm = (): boolean => {
@@ -136,6 +139,23 @@ export default function ProfileScreen({ navigation }: Props) {
             await signOut();
         } catch {
             // Sign out handled gracefully
+        }
+    };
+
+    const doDeleteAccount = async () => {
+        setShowDeleteModal(false);
+        setDeleting(true);
+        try {
+            await deleteAccount();
+            // No navigation needed — clearing the session swaps the navigator
+            // back to the auth stack.
+        } catch (err) {
+            StyledAlert.alert(
+                'Could not delete account',
+                err instanceof Error ? err.message : 'Something went wrong. Please try again.'
+            );
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -241,6 +261,9 @@ export default function ProfileScreen({ navigation }: Props) {
                 </TouchableOpacity>
             </View>
 
+            {/* Reminder Settings */}
+            <NotificationSettings />
+
             {/* Account Section */}
             <View style={styles.sectionCard}>
                 <Text style={[styles.sectionTitle, styles.dangerTitle]}>Account</Text>
@@ -261,6 +284,25 @@ export default function ProfileScreen({ navigation }: Props) {
                 >
                     <Text style={styles.signOutButtonText}>Sign Out</Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                    onPress={() => setShowDeleteModal(true)}
+                    style={styles.deleteAccountButton}
+                    activeOpacity={0.8}
+                    disabled={deleting}
+                >
+                    {deleting ? (
+                        <ActivityIndicator color={colors.error} />
+                    ) : (
+                        <>
+                            <AppIcon name="trash-can-outline" size={18} color={colors.error} />
+                            <Text style={styles.deleteAccountButtonText}>Delete Account</Text>
+                        </>
+                    )}
+                </TouchableOpacity>
+                <Text style={styles.deleteAccountHint}>
+                    Permanently erases your account, goals, proof photos and balances. This cannot be undone.
+                </Text>
             </View>
 
             {/* Version Info */}
@@ -278,6 +320,22 @@ export default function ProfileScreen({ navigation }: Props) {
                 confirmStyle="danger"
                 onConfirm={doSignOut}
                 onCancel={() => setShowLogoutModal(false)}
+            />
+
+            {/* Delete Account Confirmation Modal */}
+            <ConfirmModal
+                visible={showDeleteModal}
+                title="Delete account?"
+                message={
+                    'This permanently deletes your account, your goals, your proof photos and any balances you owe or are owed.\n\n' +
+                    'Groups you created are handed over to another member. Groups where you are the only member are deleted.\n\n' +
+                    'This cannot be undone.'
+                }
+                confirmText="Delete forever"
+                cancelText="Cancel"
+                confirmStyle="danger"
+                onConfirm={doDeleteAccount}
+                onCancel={() => setShowDeleteModal(false)}
             />
         </ScrollView>
     );
@@ -450,6 +508,32 @@ const styles = StyleSheet.create({
         color: colors.error,
         fontWeight: '800',
         fontSize: 16,
+    },
+    // Deliberately quieter than Sign Out — destructive, so it should not be
+    // the easiest thing to hit by accident.
+    deleteAccountButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: 12,
+        paddingVertical: 14,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: 'transparent',
+    },
+    deleteAccountButtonText: {
+        color: colors.error,
+        fontWeight: '700',
+        fontSize: 14,
+    },
+    deleteAccountHint: {
+        color: colors.textSubtle,
+        fontSize: 11,
+        lineHeight: 16,
+        marginTop: 8,
+        textAlign: 'center',
     },
     versionContainer: {
         alignItems: 'center',

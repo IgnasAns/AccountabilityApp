@@ -4,6 +4,8 @@ import { Session, User } from '@supabase/supabase-js';
 import { supabase, initAuthListener, cleanupAuthListener } from '../services/supabase';
 import { Profile } from '../types/database';
 import { env } from '../config/env';
+import { rateLimiters } from '../utils/rateLimiter';
+import { cancelAllGoalReminders, unregisterPushToken } from '../services/notifications';
 
 const PASSWORD_RESET_REDIRECT_URL = 'doitmate://reset-password';
 const SESSION_LOAD_TIMEOUT_MS = 6000;
@@ -23,6 +25,7 @@ interface AuthContextType {
     requestPasswordReset: (email: string) => Promise<void>;
     resetPassword: (newPassword: string) => Promise<void>;
     changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+    deleteAccount: () => Promise<void>;
     passwordRecovery: boolean;
     clearPasswordRecovery: () => void;
     isGuest: boolean;
@@ -42,6 +45,7 @@ const AuthContext = createContext<AuthContextType>({
     requestPasswordReset: async () => {},
     resetPassword: async () => {},
     changePassword: async () => {},
+    deleteAccount: async () => {},
     passwordRecovery: false,
     clearPasswordRecovery: () => {},
     isGuest: false,
@@ -129,6 +133,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (error) {
                 console.error('[Auth] Error fetching profile:', error);
+                return;
+            }
+
+            // Guard against a fetch resolving after SIGNED_OUT (stale identity).
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (sessionData.session?.user?.id !== userId) {
                 return;
             }
 
@@ -265,6 +275,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [fetchProfile, handlePasswordRecoveryUrl, scheduleProfileFetch]);
 
     const signIn = useCallback(async (email: string, password: string) => {
+        if (!rateLimiters.auth.canProceed()) {
+            throw new Error('Too many attempts. Please wait a minute and try again.');
+        }
         setIsGuest(false);
         const { data, error } = await withAuthTimeout(
             supabase.auth.signInWithPassword({
@@ -282,6 +295,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, [fetchProfile]);
 
     const signUp = useCallback(async (email: string, password: string, name: string) => {
+        if (!rateLimiters.auth.canProceed()) {
+            throw new Error('Too many attempts. Please wait a minute and try again.');
+        }
         setIsGuest(false);
         const { data, error } = await supabase.auth.signUp({
             email: email.toLowerCase().trim(),
@@ -318,8 +334,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const signOut = useCallback(async () => {
         const isAnon = user?.is_anonymous;
 
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
+        // Drop the push token and any pending reminders while we still have a
+        // valid session — after signOut the delete would be rejected by RLS,
+        // and the next account on this device would inherit the reminders.
+        if (user) {
+            await unregisterPushToken(user.id).catch(() => {});
+            await cancelAllGoalReminders().catch(() => {});
+        }
+
+        try {
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+                // Fall back to local-only signout so the UI never stays
+                // authenticated against a possibly-invalidated session.
+                console.error('[Auth] Remote signOut failed, clearing locally:', error);
+                await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+            }
+        } finally {
+            // Local state must always be cleared, even on network error.
+            setUser(null);
+            setProfile(null);
+            setSession(null);
+            setIsGuest(false);
+        }
 
         // For anonymous users, also delete the account
         if (isAnon) {
@@ -330,11 +367,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 // Ignore cleanup errors for anonymous accounts
             }
         }
-
-        setUser(null);
-        setProfile(null);
-        setSession(null);
-        setIsGuest(false);
     }, [user]);
 
     const signInAsGuest = useCallback(async () => {
@@ -459,6 +491,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     }, [session, user]);
 
+    /**
+     * Permanently delete the signed-in account.
+     *
+     * Required by Google Play for any app offering account creation. The heavy
+     * lifting is server-side in delete_my_account(), which has to walk the FK
+     * graph by hand (several tables reference profiles without ON DELETE
+     * CASCADE) and transfers ownership of any groups this user created rather
+     * than destroying other members' history.
+     */
+    const deleteAccount = useCallback(async () => {
+        if (!user) throw new Error('Not authenticated');
+
+        // Best-effort: stored files first, while the session can still be
+        // authorised against storage. A failure here must not block deletion of
+        // the account itself.
+        const { error: storageError } = await supabase.rpc('delete_my_storage_objects');
+        if (storageError) {
+            console.error('[Auth] Storage cleanup failed, continuing:', storageError.message);
+        }
+
+        // supabase.rpc() returns a thenable builder, not a real Promise, so it
+        // has to be adopted before withAuthTimeout can race it.
+        const { error } = await withAuthTimeout(
+            Promise.resolve(supabase.rpc('delete_my_account')),
+            'Account deletion timed out. Please check your connection and try again.'
+        );
+        if (error) throw error;
+
+        // The auth row is gone, so the session is already void; clear locally
+        // rather than round-tripping a signOut that would now fail.
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+        await cancelAllGoalReminders().catch(() => {});
+
+        setUser(null);
+        setProfile(null);
+        setSession(null);
+        setIsGuest(false);
+        setPasswordRecovery(false);
+    }, [user]);
+
     const clearPasswordRecovery = useCallback(() => {
         setPasswordRecovery(false);
     }, []);
@@ -479,6 +551,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 requestPasswordReset,
                 resetPassword,
                 changePassword,
+                deleteAccount,
                 passwordRecovery,
                 clearPasswordRecovery,
                 isGuest,
