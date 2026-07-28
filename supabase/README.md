@@ -1,28 +1,84 @@
 # Supabase Database Setup
 
-## Quick Start
+## Quick Start — one file
 
-Run these SQL files in your Supabase Dashboard > SQL Editor in order:
+Paste **`bootstrap.sql`** into the Supabase Dashboard > SQL Editor of a fresh
+project. That is the entire schema, in the correct order, and it is safe to
+re-run.
 
-1. **`full_setup.sql`** - Core database setup (profiles, groups, members, transactions)
-2. **`photo_proof_setup.sql`** - Photo proof feature (storage bucket, column)
-3. **`scheduled_goals_setup.sql`** - Scheduled goals feature (goals, completions)
-4. **`group_chat_setup.sql`** - Group chat feature (messages, real-time)
-5. **`auto_failure_setup.sql`** - Auto-failure for overdue goals
-6. **`enhanced_goals_setup.sql`** - Positive/Negative goal modes & stats
-7. **`migrations/007_activity_log_and_enhancements.sql`** - Activity log, streak tracking, leaderboards, badges, templates
+```bash
+# Regenerate it after editing any source .sql file:
+python scripts/build_bootstrap_sql.py
+```
 
-## Files
+Do not edit `bootstrap.sql` by hand — it is generated from the files below.
 
-| File | Description |
-|------|-------------|
-| `full_setup.sql` | Complete base schema with RLS policies |
-| `photo_proof_setup.sql` | Photo proof for failures |
-| `scheduled_goals_setup.sql` | Goals with frequency tracking |
-| `group_chat_setup.sql` | In-app messaging |
-| `auto_failure_setup.sql` | Auto-penalty when goals are missed |
-| `enhanced_goals_setup.sql` | Positive/Negative modes, weekly stats, graphs |
-| `migrations/007_*.sql` | Activity log, streaks, leaderboards, badges |
+Then, still in the dashboard:
+
+1. **Authentication > Providers** — enable **Email**, and **Anonymous** if you
+   want guest mode to work (`signInAsGuest` fails without it).
+2. **Authentication > URL Configuration** — add the redirect
+   `doitmate://reset-password`, or password reset links will not open the app.
+3. **Storage** — confirm the `avatars` and `proof-photos` buckets exist.
+4. Copy the project URL + anon key into `.env` **and** all four `eas.json`
+   build profiles. Both are baked into release builds, so missing one ships a
+   broken app.
+
+> ⚠️ **The previous backend (ref `bftyuzhigydeuabzkfvs`) was lost this way.**
+> Free-tier projects pause after ~7 days of inactivity and become eligible for
+> deletion after ~90 days paused. The shipped app pointed at a hostname that no
+> longer resolved, so nobody could log in. `.github/workflows/supabase-worker.yml`
+> pings the database every 15 minutes to prevent a repeat — set the
+> `SUPABASE_URL` and `SUPABASE_ANON_KEY` repository secrets or it will not run.
+
+## Source files (run order)
+
+| # | File | Description |
+|---|------|-------------|
+| 1 | `full_setup.sql` | Complete base schema with RLS policies |
+| 2 | `photo_proof_setup.sql` | Photo proof for failures |
+| 3 | `scheduled_goals_setup.sql` | Goals with frequency tracking |
+| 4 | `group_chat_setup.sql` | In-app messaging |
+| 5 | `auto_failure_setup.sql` | Auto-penalty when goals are missed |
+| 6 | `enhanced_goals_setup.sql` | Positive/Negative modes, weekly stats, graphs |
+| 7 | `migrations/007_*.sql` | Activity log, streaks, leaderboards, badges |
+| 8 | `migrations/008_*.sql` | Missing activity log triggers |
+| 9 | `migrations/010_*.sql` | RLS policies & server-side hardening |
+| 10 | `migrations/011_*.sql` | `log_failure` balance maths fix |
+| 11 | `migrations/012_*.sql` | Push tokens, notification outbox, triggers |
+| 12 | `migrations/013_*.sql` | RLS on `goal_templates` (was wide open) |
+
+There is no `009`.
+
+## Push notifications
+
+Two independent paths — see `src/services/notifications.ts`.
+
+**Local deadline reminders** need nothing here. They are scheduled on-device
+from the user's own goals and keep working if the backend is down entirely.
+This is the load-bearing half.
+
+**Remote push** (a mate logged a failure, someone joined) needs all of:
+
+1. `migrations/012_push_notifications.sql` applied — creates `push_tokens` and
+   `notification_outbox`, plus triggers that enqueue on failures, completions
+   and joins.
+2. A real EAS project id in `app.json` → `extra.eas.projectId`. It currently
+   holds the literal placeholder `"your-project-id"`, so token registration
+   no-ops and only local reminders fire.
+3. FCM credentials uploaded to EAS for Android (`eas credentials`).
+4. The `send-push` Edge Function deployed:
+   ```bash
+   npx supabase functions deploy send-push
+   ```
+   It reads `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` from the function
+   environment (both are injected automatically) and needs the service role
+   because RLS deliberately hides other users' push tokens.
+5. Something invoking it on a schedule — the GitHub Action above already does,
+   since there is no `pg_cron` on the free tier.
+
+Missing steps 2–5 degrade gracefully: the app never errors, users just get
+local reminders only.
 
 ## New Features (v2.0)
 

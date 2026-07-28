@@ -1,0 +1,94 @@
+# Keeps the Supabase backend alive and delivers queued push notifications.
+#
+# WHY THIS EXISTS
+# ---------------
+# The original backend (project ref bftyuzhigydeuabzkfvs) was lost. Free-tier
+# Supabase projects pause after ~7 days with no activity and are eligible for
+# deletion after ~90 days paused. With single-digit installs and near-zero opens
+# the project went quiet, paused, and was removed — taking every account and
+# group with it. A scheduled request is the cheapest possible insurance against
+# that happening a second time.
+#
+# The same run drains the notification outbox, so remote push does not need
+# pg_cron (unavailable on the free tier).
+#
+# REQUIRED REPOSITORY SECRETS
+#   SUPABASE_URL       https://<ref>.supabase.co
+#   SUPABASE_ANON_KEY  the anon/public key
+#
+# Both are safe as secrets even though the anon key is public by design.
+
+name: Supabase keep-alive & push worker
+
+on:
+  schedule:
+    # Every 15 minutes. Frequent enough that a push feels timely, and far
+    # inside the free Actions allowance (~10s per run).
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  # Never let a slow run overlap the next tick.
+  group: supabase-worker
+  cancel-in-progress: false
+
+jobs:
+  keepalive-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Verify secrets are configured
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::SUPABASE_URL and SUPABASE_ANON_KEY must be set as repository secrets."
+            exit 1
+          fi
+
+      - name: Ping the database (keep-alive)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          # A HEAD against a tiny table is enough to count as activity.
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -X HEAD \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/goal_templates?select=id&limit=1")
+
+          echo "Keep-alive HTTP $status"
+
+          # 2xx means healthy. Anything else is worth failing loudly for: a 404
+          # means the schema is missing, and a connection error means the project
+          # is paused or gone — exactly what this job exists to catch early.
+          case "$status" in
+            2*) echo "Backend is reachable." ;;
+            *)  echo "::error::Backend returned HTTP $status — check the project is running."; exit 1 ;;
+          esac
+
+      - name: Drain the notification outbox
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          # Skipped silently when the function has not been deployed yet, so
+          # the keep-alive above still runs on its own.
+          response=$(curl -sS -w '\n%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" \
+            "$SUPABASE_URL/functions/v1/send-push" || true)
+
+          status=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "send-push HTTP $status"
+          echo "$body"
+
+          if [ "$status" = "404" ]; then
+            echo "::warning::send-push is not deployed yet — run 'npx supabase functions deploy send-push'."
+          fi
