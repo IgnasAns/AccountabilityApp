@@ -29,7 +29,10 @@
     "**/*.tsx"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "dist",
+    "dist-qa-web",
+    "supabase/functions"
   ],
   "extends": "expo/tsconfig.base"
 }

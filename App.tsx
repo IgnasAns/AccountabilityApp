@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as NavigationBar from 'expo-navigation-bar';
 
 import { AuthProvider, useAuth } from './src/hooks/useAuth';
+import { NotificationProvider } from './src/hooks/useNotifications';
 import { AlertProvider } from './src/components/StyledAlert';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import AppIcon from './src/components/AppIcon';
@@ -241,12 +242,14 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <SafeAreaProvider>
-          <AlertProvider>
-            <StatusBar style="light" />
-            <NavigationWrapper />
-          </AlertProvider>
-        </SafeAreaProvider>
+        <NotificationProvider>
+          <SafeAreaProvider>
+            <AlertProvider>
+              <StatusBar style="light" />
+              <NavigationWrapper />
+            </AlertProvider>
+          </SafeAreaProvider>
+        </NotificationProvider>
       </AuthProvider>
     </ErrorBoundary>
   );

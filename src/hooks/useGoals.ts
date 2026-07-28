@@ -3,6 +3,8 @@ import { supabase } from '../services/supabase';
 import { useAuth } from './useAuth';
 import { Goal, GoalCompletion, GoalWithCompletions, GoalStatus, GoalCategory, Profile } from '../types/database';
 import { DEFAULT_PAGE_SIZE } from '../constants';
+import { sanitizeName, sanitizeText, sanitizeNumber } from '../utils/sanitize';
+import { maybeRequestReview } from '../services/reviewPrompt';
 
 export function useGoals(groupId: string) {
     const { user } = useAuth();
@@ -136,20 +138,20 @@ export function useGoals(groupId: string) {
             .from('goals')
             .insert({
                 group_id: groupId,
-                name,
+                name: sanitizeName(name, 100),
                 emoji,
-                description,
+                description: description ? sanitizeText(description, 1000) : description,
                 goal_type: goalType,
                 goal_mode: goalMode,
                 frequency_days: frequencyDays,
                 target_per_week: targetPerWeek,
-                penalty_amount: penaltyAmount,
+                penalty_amount: sanitizeNumber(penaltyAmount, 0, 100000, 0),
                 created_by: user.id,
                 category,
-                tags,
+                tags: (tags || []).slice(0, 20).map((t) => sanitizeText(t, 50)),
                 requires_proof: requiresProof,
                 penalty_escalation_enabled: penaltyEscalationEnabled,
-                penalty_escalation_rate: penaltyEscalationRate,
+                penalty_escalation_rate: sanitizeNumber(penaltyEscalationRate, 1, 10, 1.5),
             })
             .select()
             .single();
@@ -178,7 +180,39 @@ export function useGoals(groupId: string) {
         if (insertError) throw insertError;
 
         await fetchGoals();
+
+        // Completing a goal is the one moment the user is reliably pleased with
+        // the app, which is the only time worth spending a review prompt on.
+        // Fire-and-forget: this must never delay or fail the completion.
+        void promptForReviewAfterWin(goalId);
+
         return data;
+    }
+
+    /**
+     * Decide whether this completion is a good moment to ask for a review.
+     * Errors are swallowed — the prompt is a nice-to-have, the completion is not.
+     */
+    async function promptForReviewAfterWin(goalId: string) {
+        if (!user) return;
+
+        try {
+            const { count, error: countError } = await supabase
+                .from('goal_completions')
+                .select('id', { count: 'exact', head: true })
+                .eq('user_id', user.id);
+
+            if (countError || count === null) return;
+
+            const goal = goals.find(g => g.id === goalId);
+
+            await maybeRequestReview({
+                totalCompletions: count,
+                streak: goal?.current_streak ?? undefined,
+            });
+        } catch {
+            // Ignore — never let review logic affect goal tracking.
+        }
     }
 
     // Delete a completion (undo)
@@ -258,43 +292,31 @@ export function useGoals(groupId: string) {
     async function logNegativeOccurrence(goalId: string, count: number = 1) {
         if (!user) throw new Error('Not authenticated');
 
-        // Use RPC if available, otherwise direct insert
-        try {
-            const { data, error: rpcError } = await supabase.rpc('log_negative_occurrence', {
-                p_goal_id: goalId,
-                p_count: count,
-            });
+        const { data, error: rpcError } = await supabase.rpc('log_negative_occurrence', {
+            p_goal_id: goalId,
+            p_count: count,
+        });
 
-            if (rpcError) {
-                // If function doesn't exist, fallback to direct insert
-                if (rpcError.message.includes('does not exist')) {
-                    const { error: insertError } = await supabase
-                        .from('goal_completions')
-                        .insert({
-                            goal_id: goalId,
-                            user_id: user.id,
-                            occurrence_count: count,
-                        });
-                    if (insertError) throw insertError;
-                } else {
-                    throw rpcError;
-                }
+        if (rpcError) {
+            // Only fall back to a direct insert when the RPC itself is missing.
+            // Any other error (including a post-RPC fetchGoals failure) must NOT
+            // trigger a second insert — that would double-count the occurrence.
+            if (rpcError.message.includes('does not exist')) {
+                const { error: insertError } = await supabase
+                    .from('goal_completions')
+                    .insert({
+                        goal_id: goalId,
+                        user_id: user.id,
+                        occurrence_count: count,
+                    });
+                if (insertError) throw insertError;
+            } else {
+                throw rpcError;
             }
-
-            await fetchGoals();
-            return data;
-        } catch (err) {
-            // Fallback to direct insert
-            const { error: insertError } = await supabase
-                .from('goal_completions')
-                .insert({
-                    goal_id: goalId,
-                    user_id: user.id,
-                    occurrence_count: count,
-                });
-            if (insertError) throw insertError;
-            await fetchGoals();
         }
+
+        await fetchGoals();
+        return data;
     }
 
     // Get daily counts for the last 7 days (for graphs)

@@ -3,7 +3,7 @@
     "name": "Do It Mate!",
     "slug": "do-it-mate",
     "scheme": "doitmate",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -22,10 +22,10 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0a0a0a"
+        "backgroundColor": "#D94B3D"
       },
       "package": "com.socialledger.app",
-      "versionCode": 14,
+      "versionCode": 15,
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.SYSTEM_ALERT_WINDOW"
@@ -40,7 +40,15 @@
       }
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#D94B3D",
+          "defaultChannel": "goal-reminders"
+        }
+      ]
     ]
   }
 }
