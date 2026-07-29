@@ -48,7 +48,8 @@
           "color": "#D94B3D",
           "defaultChannel": "goal-reminders"
         }
-      ]
+      ],
+      "react-native-edge-to-edge"
     ]
   }
 }

@@ -22,7 +22,7 @@ RED = (217, 75, 61)
 WHITE = (250, 250, 247)
 DARK = (15, 17, 16)
 
-REPO = Path(r"C:\Projects\Mobile Applications\AccountabilityApp")
+REPO = Path(r"C:\Projects\AccountabilityApp")
 ASSETS = REPO / "assets"
 STORE = ASSETS / "store"
 OUT_PLAY = ASSETS / "google-play" / "v1.0.11-vc15"

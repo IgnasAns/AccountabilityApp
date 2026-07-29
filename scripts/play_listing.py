@@ -28,7 +28,7 @@ SCOPES = ["https://www.googleapis.com/auth/androidpublisher"]
 PACKAGE = "com.socialledger.app"
 LANG = "en-US"
 
-REPO = Path(r"C:\Projects\Mobile Applications\AccountabilityApp")
+REPO = Path(r"C:\Projects\AccountabilityApp")
 PLAY = REPO / "assets" / "google-play"
 NEW = PLAY / "v1.0.11-vc15"
 OLD = PLAY / "v1.0.10-vc14"
