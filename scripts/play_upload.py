@@ -13,8 +13,13 @@ Nothing reaches users until the edit is committed, which this script does at the
 end; an exception anywhere rolls the edit back.
 """
 
+import socket
 import sys
 from pathlib import Path
+
+# httplib2 inherits the process-wide socket timeout. The default is short enough
+# that a 50 MB resumable upload on a slow link dies mid-chunk.
+socket.setdefaulttimeout(600)
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -71,9 +76,10 @@ def main() -> None:
                     "releaseNotes": [{
                         "language": "en-US",
                         "text": (
+                            "Fixes a problem that stopped the app connecting to its "
+                            "server, so sign-in and Explore as Guest work again.\n"
                             "Deadline reminders so a missed goal is never a surprise.\n"
-                            "Delete your account and all its data from Profile.\n"
-                            "Refreshed look, plus stability and security fixes."
+                            "Delete your account and all its data from Profile."
                         ),
                     }],
                 }],

@@ -22,9 +22,10 @@ SCOPES = ["https://www.googleapis.com/auth/androidpublisher"]
 PACKAGE = "com.socialledger.app"
 
 RELEASE_NOTES = (
+    "Fixes a problem that stopped the app connecting to its server, so sign-in "
+    "and Explore as Guest work again.\n"
     "Deadline reminders so a missed goal is never a surprise.\n"
-    "Delete your account and all its data from Profile.\n"
-    "Refreshed look, plus stability and security fixes."
+    "Delete your account and all its data from Profile."
 )
 
 

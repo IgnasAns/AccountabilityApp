@@ -22,17 +22,34 @@ interface EnvConfig {
     rateLimitMaxRequests: number;
 }
 
+// Every EXPO_PUBLIC_* variable must be read as a *static* member expression.
+// babel-preset-expo inlines `process.env.EXPO_PUBLIC_FOO` at build time; a
+// computed lookup like `process.env[key]` is invisible to that transform and
+// resolves to undefined in a release bundle. Listing them here keeps the rest of
+// the module free to use string keys.
+const RAW_ENV: Record<string, string | undefined> = {
+    EXPO_PUBLIC_SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL,
+    EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+    EXPO_PUBLIC_APP_ENV: process.env.EXPO_PUBLIC_APP_ENV,
+    EXPO_PUBLIC_ENABLE_ANALYTICS: process.env.EXPO_PUBLIC_ENABLE_ANALYTICS,
+    EXPO_PUBLIC_ENABLE_DEBUG: process.env.EXPO_PUBLIC_ENABLE_DEBUG,
+    EXPO_PUBLIC_API_TIMEOUT_MS: process.env.EXPO_PUBLIC_API_TIMEOUT_MS,
+    EXPO_PUBLIC_MAX_IMAGE_SIZE: process.env.EXPO_PUBLIC_MAX_IMAGE_SIZE,
+    EXPO_PUBLIC_RATE_LIMIT_WINDOW_MS: process.env.EXPO_PUBLIC_RATE_LIMIT_WINDOW_MS,
+    EXPO_PUBLIC_RATE_LIMIT_MAX: process.env.EXPO_PUBLIC_RATE_LIMIT_MAX,
+};
+
 function getEnvVar(key: string, fallback: string = ''): string {
-    // In Expo, env vars are available through process.env when using babel plugin
-    // For production, these should be set in app.json extra or EAS environment variables
-    const value = process.env[key] || fallback;
-    return value;
+    return RAW_ENV[key] || fallback;
 }
 
 export const env: EnvConfig = {
     supabaseUrl: getEnvVar('EXPO_PUBLIC_SUPABASE_URL'),
     supabaseAnonKey: getEnvVar('EXPO_PUBLIC_SUPABASE_ANON_KEY'),
-    appEnv: (getEnvVar('EXPO_PUBLIC_APP_ENV', 'development') as EnvConfig['appEnv']),
+    // Default off __DEV__, not a literal 'development'. .env does not set this,
+    // so the old literal meant a release build reported itself as development
+    // and skipped the startup guard in services/supabase.ts.
+    appEnv: (getEnvVar('EXPO_PUBLIC_APP_ENV', __DEV__ ? 'development' : 'production') as EnvConfig['appEnv']),
     enableAnalytics: getEnvVar('EXPO_PUBLIC_ENABLE_ANALYTICS', 'false') === 'true',
     enableDebugLogs: getEnvVar('EXPO_PUBLIC_ENABLE_DEBUG', __DEV__ ? 'true' : 'false') === 'true',
     apiTimeoutMs: parseInt(getEnvVar('EXPO_PUBLIC_API_TIMEOUT_MS', '30000'), 10),
