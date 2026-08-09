@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import { colors } from '../theme/colors';
 import { takePhoto, pickImage } from '../services/photoService';
+import { StyledAlert } from './StyledAlert';
 
 interface PhotoProofPickerProps {
     photoUri: string | null;
@@ -52,7 +53,23 @@ export default function PhotoProofPicker({
                 onPhotoSelected(uri);
             }
         } catch {
-            // Error already shown to user via permissions flow
+            // Camera permission denied (or camera unavailable): tell the user
+            // and fall back to picking from the library instead.
+            safeHaptics();
+            StyledAlert.alert(
+                'Camera permission needed',
+                'Enable it in Settings to attach proof photos. You can pick one from your library instead.'
+            );
+            try {
+                const uri = await pickImage();
+                if (uri) {
+                    safeHaptics();
+                    onPhotoSelected(uri);
+                }
+            } catch {
+                // Library permission denied too — the alert above already
+                // explains what to do.
+            }
         } finally {
             setLoading(false);
         }
@@ -68,7 +85,10 @@ export default function PhotoProofPicker({
                 onPhotoSelected(uri);
             }
         } catch {
-            // Error already shown to user via permissions flow
+            StyledAlert.alert(
+                'Photo library permission needed',
+                'Enable it in Settings to attach proof photos.'
+            );
         } finally {
             setLoading(false);
         }

@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Do It Mate! — COMPLETE DATABASE BOOTSTRAP
--- Generated 2026-07-27 by scripts/build_bootstrap_sql.py
+-- Generated 2026-08-09 by scripts/build_bootstrap_sql.py
 -- DO NOT EDIT BY HAND — edit the source files and regenerate.
 --
 -- Paste this whole file into the Supabase SQL editor of a fresh project, or:
@@ -107,18 +107,21 @@ DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.prof
 DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON profiles;
 CREATE POLICY "Public profiles are viewable by everyone."
   ON profiles FOR SELECT
+  TO authenticated
   USING ( true );
 
 DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
 DROP POLICY IF EXISTS "Users can insert their own profile." ON profiles;
 CREATE POLICY "Users can insert their own profile."
   ON profiles FOR INSERT
+  TO authenticated
   WITH CHECK ( auth.uid() = id );
 
 DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile." ON profiles;
 CREATE POLICY "Users can update own profile."
   ON profiles FOR UPDATE
+  TO authenticated
   USING ( auth.uid() = id );
 
 -- Groups Policies
@@ -164,44 +167,94 @@ CREATE POLICY "Users can view transactions involving them or their groups."
     OR group_id IN ( SELECT get_my_group_ids() )
   );
 
+-- Delete / Update Policies (deleteGroup, leaveGroup, updateGroup features)
+DROP POLICY IF EXISTS "groups_delete" ON public.groups;
+DROP POLICY IF EXISTS "groups_delete" ON groups;
+CREATE POLICY "groups_delete"
+  ON groups FOR DELETE
+  TO authenticated
+  USING ( auth.uid() = created_by );
+
+DROP POLICY IF EXISTS "Authenticated users can update their groups." ON public.groups;
+DROP POLICY IF EXISTS "Authenticated users can update their groups." ON groups;
+CREATE POLICY "Authenticated users can update their groups."
+  ON groups FOR UPDATE
+  TO authenticated
+  USING ( created_by = auth.uid() );
+
+DROP POLICY IF EXISTS "group_members_delete" ON public.group_members;
+DROP POLICY IF EXISTS "group_members_delete" ON group_members;
+CREATE POLICY "group_members_delete"
+  ON group_members FOR DELETE
+  TO authenticated
+  USING (
+    (auth.uid() = user_id)
+    OR (auth.uid() = (SELECT groups.created_by FROM groups WHERE groups.id = group_members.group_id))
+  );
+
+DROP POLICY IF EXISTS "transactions_delete" ON public.transactions;
+DROP POLICY IF EXISTS "transactions_delete" ON transactions;
+CREATE POLICY "transactions_delete"
+  ON transactions FOR DELETE
+  TO authenticated
+  USING (
+    auth.uid() = (SELECT groups.created_by FROM groups WHERE groups.id = transactions.group_id)
+  );
+
 -- 5. CREATE RPC FUNCTIONS
 -- ---------------------------------------------------------------------------
 
 -- Function: join_group_by_code
-CREATE OR REPLACE FUNCTION join_group_by_code(p_invite_code text)
-RETURNS json
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.join_group_by_code(p_invite_code text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
-  v_group_id uuid;
-  v_user_id uuid;
-  v_already_member boolean;
+    v_user_id UUID := auth.uid();
+    v_group RECORD;
+    v_attempt RECORD;
+    v_max_attempts CONSTANT INTEGER := 20;
+    v_window CONSTANT INTERVAL := '1 hour';
 BEGIN
-  v_user_id := auth.uid();
-  
-  -- Find group
-  SELECT id INTO v_group_id FROM public.groups WHERE invite_code = p_invite_code;
-  
-  IF v_group_id IS NULL THEN
-    RETURN json_build_object('success', false, 'error', 'Invalid invite code');
-  END IF;
+    IF v_user_id IS NULL THEN
+        RETURN json_build_object('success', false, 'error', 'Not authenticated');
+    END IF;
 
-  -- Check membership
-  SELECT exists(SELECT 1 FROM public.group_members WHERE group_id = v_group_id AND user_id = v_user_id)
-  INTO v_already_member;
+    -- Rate limit: max 20 guesses per user per hour
+    SELECT * INTO v_attempt FROM invite_attempts WHERE user_id = v_user_id;
+    IF v_attempt.user_id IS NOT NULL THEN
+        IF v_attempt.window_start < now() - v_window THEN
+            UPDATE invite_attempts
+            SET attempt_count = 1, window_start = now()
+            WHERE user_id = v_user_id;
+        ELSIF v_attempt.attempt_count >= v_max_attempts THEN
+            RETURN json_build_object('success', false, 'error', 'Too many attempts. Try again later.');
+        ELSE
+            UPDATE invite_attempts
+            SET attempt_count = attempt_count + 1
+            WHERE user_id = v_user_id;
+        END IF;
+    ELSE
+        INSERT INTO invite_attempts (user_id, attempt_count) VALUES (v_user_id, 1);
+    END IF;
 
-  IF v_already_member THEN
-    RETURN json_build_object('success', false, 'error', 'Already a member');
-  END IF;
+    SELECT * INTO v_group FROM groups WHERE invite_code = upper(p_invite_code);
+    IF v_group.id IS NULL THEN
+        RETURN json_build_object('success', false, 'error', 'Invalid invite code');
+    END IF;
 
-  -- Add to group
-  INSERT INTO public.group_members (group_id, user_id)
-  VALUES (v_group_id, v_user_id);
+    IF EXISTS (SELECT 1 FROM group_members WHERE group_id = v_group.id AND user_id = v_user_id) THEN
+        RETURN json_build_object('success', false, 'error', 'Already a member');
+    END IF;
 
-  RETURN json_build_object('success', true, 'group_id', v_group_id);
+    INSERT INTO public.group_members (group_id, user_id)
+    VALUES (v_group.id, v_user_id);
+
+    RETURN json_build_object('success', true, 'group_id', v_group.id);
 END;
-$$;
+$function$;
 
 -- Function: log_failure (Updated with proof_photo_url)
 CREATE OR REPLACE FUNCTION log_failure(p_group_id uuid, p_description text, p_proof_photo_url text DEFAULT NULL)
@@ -816,49 +869,59 @@ ON goal_failures FOR SELECT
 USING (user_id = auth.uid());
 
 -- 4. Function to check and process overdue goals for a user in a group
-CREATE OR REPLACE FUNCTION process_overdue_goals(p_group_id UUID)
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.process_overdue_goals(p_group_id uuid)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
     v_user_id UUID;
     v_goal RECORD;
     v_last_completion TIMESTAMPTZ;
     v_deadline DATE;
-    v_check_date DATE;
     v_penalty NUMERIC;
     v_member_count INTEGER;
     v_member RECORD;
     v_failures_processed INTEGER := 0;
     v_total_penalty NUMERIC := 0;
+    v_periods_checked INTEGER := 0;
 BEGIN
     v_user_id := auth.uid();
-    
+
     IF v_user_id IS NULL THEN
         RETURN json_build_object('success', false, 'error', 'Not authenticated');
     END IF;
-    
+
+    -- Membership guard: caller must belong to the group
+    IF NOT EXISTS (
+        SELECT 1 FROM group_members
+        WHERE group_id = p_group_id AND user_id = v_user_id
+    ) THEN
+        RETURN json_build_object('success', false, 'error', 'You are not a member of this group');
+    END IF;
+
     -- Get member count (excluding current user)
     SELECT COUNT(*) INTO v_member_count
     FROM group_members
     WHERE group_id = p_group_id AND user_id != v_user_id;
-    
+
     -- If no other members, no penalties to distribute
     IF v_member_count = 0 THEN
         RETURN json_build_object('success', true, 'failures_processed', 0, 'message', 'No other members to pay');
     END IF;
-    
+
     -- Loop through all active goals in the group
     FOR v_goal IN
-        SELECT * FROM goals 
+        SELECT * FROM goals
         WHERE group_id = p_group_id AND is_active = true
+          AND (COALESCE(is_paused, false) = false OR (paused_until IS NOT NULL AND paused_until <= now()))
     LOOP
         -- Get user's last completion for this goal
         SELECT MAX(completed_at) INTO v_last_completion
         FROM goal_completions
         WHERE goal_id = v_goal.id AND user_id = v_user_id;
-        
+
         -- Calculate the deadline based on last completion or goal creation
         IF v_last_completion IS NOT NULL THEN
             v_deadline := (v_last_completion + (v_goal.frequency_days || ' days')::INTERVAL)::DATE;
@@ -866,15 +929,20 @@ BEGIN
             -- First deadline is frequency_days after goal creation
             v_deadline := (v_goal.created_at + (v_goal.frequency_days || ' days')::INTERVAL)::DATE;
         END IF;
-        
-        -- Check if deadline has passed (and it's before today)
-        -- We process failures for deadlines that have fully passed (before today)
-        WHILE v_deadline < CURRENT_DATE LOOP
+
+        -- Process at most the 4 most recent missed periods per goal per call
+        -- (bounds work for long-dormant goals; older periods get caught on
+        --  subsequent calls or by the scheduled server-side job)
+        v_periods_checked := 0;
+
+        WHILE v_deadline < CURRENT_DATE AND v_periods_checked < 4 LOOP
+            v_periods_checked := v_periods_checked + 1;
+
             -- Check if we already processed this failure
             IF NOT EXISTS (
-                SELECT 1 FROM goal_failures 
-                WHERE goal_id = v_goal.id 
-                AND user_id = v_user_id 
+                SELECT 1 FROM goal_failures
+                WHERE goal_id = v_goal.id
+                AND user_id = v_user_id
                 AND deadline_date = v_deadline
             ) THEN
                 -- Check if there was a completion before this deadline
@@ -887,22 +955,22 @@ BEGIN
                 ) THEN
                     -- No completion for this period - CREATE FAILURE
                     v_penalty := v_goal.penalty_amount;
-                    
+
                     -- Record the failure
                     INSERT INTO goal_failures (goal_id, user_id, deadline_date, penalty_applied)
                     VALUES (v_goal.id, v_user_id, v_deadline, v_penalty);
-                    
+
                     -- Create transactions to other members
                     FOR v_member IN
                         SELECT user_id FROM group_members
                         WHERE group_id = p_group_id AND user_id != v_user_id
                     LOOP
                         INSERT INTO transactions (
-                            group_id, 
-                            from_user_id, 
-                            to_user_id, 
-                            amount, 
-                            description, 
+                            group_id,
+                            from_user_id,
+                            to_user_id,
+                            amount,
+                            description,
                             status
                         )
                         VALUES (
@@ -913,35 +981,40 @@ BEGIN
                             'Missed goal: ' || v_goal.emoji || ' ' || v_goal.name || ' (due ' || v_deadline || ')',
                             'pending'
                         );
-                        
+
                         -- Update balances
-                        UPDATE group_members 
-                        SET current_balance = current_balance - v_penalty,
-                            failure_count = failure_count + 1
+                        UPDATE group_members
+                        SET current_balance = current_balance - v_penalty
                         WHERE group_id = p_group_id AND user_id = v_user_id;
-                        
-                        UPDATE group_members 
+
+                        UPDATE group_members
                         SET current_balance = current_balance + v_penalty
                         WHERE group_id = p_group_id AND user_id = v_member.user_id;
                     END LOOP;
-                    
+
+                    -- One failure per missed period, not one per member
+                    UPDATE group_members
+                    SET failure_count = failure_count + 1
+                    WHERE group_id = p_group_id AND user_id = v_user_id;
+
                     v_failures_processed := v_failures_processed + 1;
                     v_total_penalty := v_total_penalty + (v_penalty * v_member_count);
                 END IF;
             END IF;
-            
+
             -- Move to next deadline period
             v_deadline := v_deadline + (v_goal.frequency_days || ' days')::INTERVAL;
         END LOOP;
     END LOOP;
-    
+
     RETURN json_build_object(
-        'success', true, 
+        'success', true,
         'failures_processed', v_failures_processed,
         'total_penalty', v_total_penalty
     );
 END;
-$$;
+$function$;
+
 
 -- ============================================
 -- DONE! Auto-failure system ready.
@@ -1072,14 +1145,12 @@ END;
 $$;
 
 -- 5. Function to log negative occurrence (quick tap, optional penalty)
-CREATE OR REPLACE FUNCTION log_negative_occurrence(
-    p_goal_id UUID,
-    p_count INTEGER DEFAULT 1
-)
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.log_negative_occurrence(p_goal_id uuid, p_count integer DEFAULT 1)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
     v_user_id UUID;
     v_goal RECORD;
@@ -1088,35 +1159,47 @@ DECLARE
     v_member_count INTEGER;
 BEGIN
     v_user_id := auth.uid();
-    
+
     IF v_user_id IS NULL THEN
         RETURN json_build_object('success', false, 'error', 'Not authenticated');
     END IF;
-    
+
+    IF p_count < 1 OR p_count > 50 THEN
+        RETURN json_build_object('success', false, 'error', 'Count must be between 1 and 50');
+    END IF;
+
     -- Get goal details
     SELECT * INTO v_goal FROM goals WHERE id = p_goal_id;
-    
+
     IF v_goal IS NULL THEN
         RETURN json_build_object('success', false, 'error', 'Goal not found');
     END IF;
-    
+
+    -- Membership guard: caller must belong to the goal's group
+    IF NOT EXISTS (
+        SELECT 1 FROM group_members
+        WHERE group_id = v_goal.group_id AND user_id = v_user_id
+    ) THEN
+        RETURN json_build_object('success', false, 'error', 'You are not a member of this goal''s group');
+    END IF;
+
     IF v_goal.goal_mode != 'negative' THEN
         RETURN json_build_object('success', false, 'error', 'This is not a negative tracking goal');
     END IF;
-    
+
     -- Log the occurrence
     INSERT INTO goal_completions (goal_id, user_id, occurrence_count)
     VALUES (p_goal_id, v_user_id, p_count);
-    
+
     -- Apply penalty if set
     v_penalty := v_goal.penalty_amount * p_count;
-    
+
     IF v_penalty > 0 THEN
         -- Get member count
         SELECT COUNT(*) INTO v_member_count
         FROM group_members
         WHERE group_id = v_goal.group_id AND user_id != v_user_id;
-        
+
         IF v_member_count > 0 THEN
             -- Create transactions
             FOR v_member IN
@@ -1134,27 +1217,32 @@ BEGIN
                     v_goal.emoji || ' ' || v_goal.name || ' x' || p_count,
                     'pending'
                 );
-                
+
                 -- Update balances
-                UPDATE group_members 
-                SET current_balance = current_balance - v_penalty,
-                    failure_count = failure_count + 1
+                UPDATE group_members
+                SET current_balance = current_balance - v_penalty
                 WHERE group_id = v_goal.group_id AND user_id = v_user_id;
-                
-                UPDATE group_members 
+
+                UPDATE group_members
                 SET current_balance = current_balance + v_penalty
                 WHERE group_id = v_goal.group_id AND user_id = v_member.user_id;
             END LOOP;
+
+            -- One failure per slip-up, not one per member
+            UPDATE group_members
+            SET failure_count = failure_count + 1
+            WHERE group_id = v_goal.group_id AND user_id = v_user_id;
         END IF;
     END IF;
-    
+
     RETURN json_build_object(
-        'success', true, 
+        'success', true,
         'count', p_count,
         'penalty_applied', v_penalty
     );
 END;
-$$;
+$function$;
+
 
 -- ============================================
 -- DONE! Enhanced goals system ready.
@@ -2501,12 +2589,12 @@ CREATE POLICY "Goal templates are publicly readable" ON goal_templates
 -- happened to create a group must not wipe out everyone else's history.
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION delete_my_account()
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth
-AS $$
+CREATE OR REPLACE FUNCTION public.delete_my_account()
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'auth'
+AS $function$
 DECLARE
     v_user_id UUID := auth.uid();
     v_group RECORD;
@@ -2551,8 +2639,26 @@ BEGIN
     --    these to, so remove them (cascades completions and comments).
     DELETE FROM goals WHERE created_by = v_user_id;
 
-    -- 3. Money owed in either direction. Deleting an account discards the
-    --    ledger it took part in — surfaced in the UI before confirming.
+    -- 3. Money owed in either direction. Settle counterparties first so the
+    --    remaining members' balances stay consistent after the transactions
+    --    are removed: a pending debt the departed user owed is voided (the
+    --    creditor's phantom credit is reversed), and a pending debt owed TO
+    --    the departed user is written off (the debtor's phantom debit is
+    --    reversed).
+    UPDATE group_members gm SET current_balance = gm.current_balance - t.amount
+    FROM transactions t
+    WHERE t.from_user_id = v_user_id
+      AND t.to_user_id = gm.user_id
+      AND t.group_id = gm.group_id
+      AND t.status = 'pending';
+
+    UPDATE group_members gm SET current_balance = gm.current_balance + t.amount
+    FROM transactions t
+    WHERE t.to_user_id = v_user_id
+      AND t.from_user_id = gm.user_id
+      AND t.group_id = gm.group_id
+      AND t.status = 'pending';
+
     DELETE FROM transactions
     WHERE from_user_id = v_user_id OR to_user_id = v_user_id;
 
@@ -2573,7 +2679,8 @@ BEGIN
         'groups_transferred', v_groups_transferred
     );
 END;
-$$;
+$function$;
+
 
 -- Only the signed-in user can invoke it, and it only ever acts on auth.uid(),
 -- so there is no way to aim it at somebody else's account.
@@ -2607,4 +2714,70 @@ $$;
 
 REVOKE ALL ON FUNCTION delete_my_storage_objects() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION delete_my_storage_objects() TO authenticated;
+
+-- ----------------------------------------------------------------------------
+-- SOURCE: supabase/migrations/015_security_hardening.sql
+-- ----------------------------------------------------------------------------
+
+-- ============================================================================
+-- MIGRATION 015: Security hardening
+--
+-- Applies the security fixes that were made to the LIVE database but never
+-- merged back into the SQL sources. Run this on EXISTING databases only —
+-- fresh databases get everything from supabase/bootstrap.sql.
+--
+-- What it does:
+--   1. Creates invite_attempts, the rate-limit table backing the hardened
+--      join_group_by_code (max 20 invite-code guesses per user per hour).
+--   2. Revokes direct execution of enqueue_group_notification — it is a
+--      trigger/service-only function and must not be callable by
+--      PUBLIC/anon/authenticated.
+--   3. Adds an explicit search_path to every SECURITY DEFINER function that
+--      lacks one, so hostile schemas cannot hijack unqualified names.
+--
+-- THIS MIGRATION SUPERSEDES add_delete_policies.sql AND fix_invite_codes.sql,
+-- both of which were DELETED from the repo and must never be run again:
+--   * add_delete_policies.sql shipped transactions_insert / transactions_update
+--     / group_members_update policies with USING (true) / WITH CHECK (true),
+--     which let ANY authenticated user rewrite the money ledger.
+--   * fix_invite_codes.sql shrank invite codes to 8 hex chars (32 bits of
+--     entropy), making them trivially guessable and defeating the rate
+--     limiting added here.
+-- The narrow creator-only DELETE/UPDATE policies from the live database
+-- (groups_delete, group_members_delete, transactions_delete, groups update)
+-- live in supabase/full_setup.sql.
+--
+-- Function rewrites for EXISTING databases: log_negative_occurrence,
+-- process_overdue_goals, delete_my_account and join_group_by_code were
+-- updated in their ORIGINAL source files (supabase/enhanced_goals_setup.sql,
+-- supabase/auto_failure_setup.sql, supabase/migrations/014_account_deletion.sql,
+-- supabase/full_setup.sql) — re-run those files (or the regenerated
+-- supabase/bootstrap.sql) to pick up the hardened bodies.
+-- ============================================================================
+
+-- Rate-limit table backing join_group_by_code (idempotent)
+CREATE TABLE IF NOT EXISTS public.invite_attempts (
+    user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    attempt_count integer NOT NULL DEFAULT 0,
+    window_start timestamptz NOT NULL DEFAULT now()
+);
+
+-- Trigger/service-only function: revoke direct execution
+REVOKE ALL ON FUNCTION public.enqueue_group_notification FROM PUBLIC, anon, authenticated;
+
+-- search_path on every SECURITY DEFINER function that lacks it
+DO $$
+DECLARE r record;
+BEGIN
+    FOR r IN
+        SELECT p.oid::regprocedure AS sig
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND p.prosecdef
+          AND p.proconfig IS NULL
+    LOOP
+        EXECUTE format('ALTER FUNCTION %s SET search_path = public', r.sig);
+    END LOOP;
+END $$;
 

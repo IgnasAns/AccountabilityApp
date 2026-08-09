@@ -3,29 +3,55 @@ import {
     View,
     Text,
     TouchableOpacity,
+    Pressable,
+    Modal,
     StyleSheet,
     ActivityIndicator,
+    Platform,
 } from 'react-native';
+import { Calendar, DateData } from 'react-native-calendars';
+import { BlurView } from 'expo-blur';
 import { GoalWithCompletions, GoalStatus } from '../types/database';
 import { colors } from '../theme/colors';
 import { safeHaptics } from '../utils/haptics';
+import { StyledAlert } from './StyledAlert';
 import AppIcon from './AppIcon';
+import StreakBadge from './StreakBadge';
 
 interface Props {
     goal: GoalWithCompletions;
     status: GoalStatus;
     onComplete: (goalId: string) => Promise<void>;
+    /** Opens the completion modal (photo proof / notes). */
+    onCompleteWithProof?: (goalId: string) => void;
     onNegativeLog?: (goalId: string, count: number) => Promise<void>;
     onViewCalendar: (goalId: string) => void;
+    /** Pause/resume a goal (used by the long-press action sheet). */
+    onTogglePause?: (goalId: string, pause: boolean, pauseUntil?: Date) => Promise<boolean>;
 }
 
 import ConfirmModal from './ConfirmModal';
 
-export default function GoalCard({ goal, status, onComplete, onNegativeLog, onViewCalendar }: Props) {
+export default function GoalCard({
+    goal,
+    status,
+    onComplete,
+    onCompleteWithProof,
+    onNegativeLog,
+    onViewCalendar,
+    onTogglePause,
+}: Props) {
     const [completing, setCompleting] = useState(false);
     const [showConfirmSlipUp, setShowConfirmSlipUp] = useState(false);
+    const [showPauseSheet, setShowPauseSheet] = useState(false);
+    const [showPauseDatePicker, setShowPauseDatePicker] = useState(false);
+    const [pausedUntil, setPausedUntil] = useState<string | null>(null);
+    const [pausing, setPausing] = useState(false);
 
     const isNegative = goal.goal_mode === 'negative';
+    // 1-tap fast path: positive goals that don't require photo proof.
+    const isFastComplete = !isNegative && !goal.requires_proof;
+    const isPaused = goal.is_paused && (!goal.paused_until || new Date(goal.paused_until) > new Date());
 
     // Using centralized haptics utility from utils/haptics.ts
     const todayCount = useMemo(() => {
@@ -47,6 +73,7 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
             .reduce((sum, c) => sum + (c.occurrence_count || 1), 0);
     }, [goal.completions]);
 
+    // 1-tap complete (fast path for positive goals without proof requirement)
     const handleComplete = async () => {
         try {
             setCompleting(true);
@@ -57,6 +84,12 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
         } finally {
             setCompleting(false);
         }
+    };
+
+    // Opens the full completion modal (proof / notes)
+    const handleCompleteWithProof = () => {
+        safeHaptics('light');
+        onCompleteWithProof?.(goal.id);
     };
 
     const handleNegativePress = () => {
@@ -79,8 +112,82 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
         }
     };
 
+    // ---- Pause / resume ----
+
+    const handleLongPress = () => {
+        safeHaptics('selection');
+        setShowPauseSheet(true);
+    };
+
+    const handlePause = async (until?: Date) => {
+        if (!onTogglePause) return;
+        setShowPauseSheet(false);
+        setShowPauseDatePicker(false);
+        setPausing(true);
+        try {
+            const ok = await onTogglePause(goal.id, true, until);
+            if (ok) {
+                safeHaptics('success');
+                if (until) {
+                    StyledAlert.alert(
+                        'Paused ⏸',
+                        `"${goal.name}" is paused until ${until.toLocaleDateString()}. No auto-failures while paused.`
+                    );
+                } else {
+                    StyledAlert.alert(
+                        'Paused ⏸',
+                        `"${goal.name}" is paused for a week. No auto-failures while paused.`
+                    );
+                }
+            } else {
+                StyledAlert.alert('Error', 'Could not pause this goal.');
+            }
+        } finally {
+            setPausing(false);
+        }
+    };
+
+    const handleResume = async () => {
+        if (!onTogglePause) return;
+        setShowPauseSheet(false);
+        setPausing(true);
+        try {
+            const ok = await onTogglePause(goal.id, false);
+            if (ok) {
+                safeHaptics('success');
+                StyledAlert.alert('Resumed ▶️', `"${goal.name}" is back on the clock.`);
+            } else {
+                StyledAlert.alert('Error', 'Could not resume this goal.');
+            }
+        } finally {
+            setPausing(false);
+        }
+    };
+
+    const handlePauseDayPress = (day: DateData) => {
+        setPausedUntil(day.dateString);
+    };
+
+    const confirmPauseUntil = () => {
+        if (!pausedUntil) return;
+        // Parse YYYY-MM-DD as a local date at end of day, so the pause lasts
+        // through the chosen day.
+        const [y, m, d] = pausedUntil.split('-').map(Number);
+        const date = new Date(y, m - 1, d, 23, 59, 59);
+        handlePause(date);
+    };
+
 
     const getStatusInfo = () => {
+        if (isPaused) {
+            return {
+                color: colors.textMuted,
+                bgColor: 'rgba(148, 163, 184, 0.12)',
+                borderColor: 'rgba(148, 163, 184, 0.3)',
+                text: '⏸ Paused',
+                urgent: false,
+            };
+        }
         if (isNegative) {
             if (todayCount === 0) {
                 return {
@@ -156,15 +263,28 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
         }
     };
 
+    const today = new Date().toISOString().split('T')[0];
+
     return (
-        <View style={[styles.card, { borderColor: statusInfo.borderColor }]}>
+        <Pressable
+            style={[styles.card, { borderColor: statusInfo.borderColor }]}
+            onLongPress={handleLongPress}
+            delayLongPress={450}
+        >
             {/* Header */}
             <View style={styles.header}>
                 <View style={[styles.emojiContainer, isNegative && styles.emojiContainerNegative]}>
                     <Text style={styles.emoji}>{goal.emoji}</Text>
                 </View>
                 <View style={styles.titleContainer}>
-                    <Text style={styles.title} numberOfLines={1}>{goal.name}</Text>
+                    <View style={styles.titleRow}>
+                        <Text style={styles.title} numberOfLines={1}>{goal.name}</Text>
+                        {isPaused && (
+                            <View style={styles.pausedBadge}>
+                                <Text style={styles.pausedBadgeText}>⏸ Paused</Text>
+                            </View>
+                        )}
+                    </View>
                     <Text style={styles.frequency}>
                         {isNegative
                             ? `€${goal.penalty_amount.toFixed(2)} per slip-up`
@@ -211,10 +331,13 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                 {!isNegative && (goal.current_streak || 0) > 0 && (
                     <>
                         <View style={styles.stat}>
-                            <Text style={[styles.statValue, styles.streakValue]}>
-                                🔥 {goal.current_streak || 0}
-                            </Text>
-                            <Text style={styles.statLabel}>Streak</Text>
+                            <StreakBadge
+                                currentStreak={goal.current_streak || 0}
+                                longestStreak={goal.longest_streak || 0}
+                                size="small"
+                                showLongest={false}
+                                showMotivation={false}
+                            />
                         </View>
                         <View style={styles.statDivider} />
                     </>
@@ -245,24 +368,45 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                     )}
                 </TouchableOpacity>
             ) : (
-                <TouchableOpacity
-                    style={[
-                        styles.completeButton,
-                        statusInfo.urgent && styles.completeButtonUrgent,
-                    ]}
-                    onPress={handleComplete}
-                    disabled={completing}
-                    activeOpacity={0.7}
-                >
-                    {completing ? (
-                        <ActivityIndicator color="#fff" />
-                    ) : (
-                        <>
-                            <AppIcon name="camera-outline" size={18} color="#fff" />
-                            <Text style={styles.completeButtonText}>Mark Complete</Text>
-                        </>
+                <View style={styles.actionRow}>
+                    <TouchableOpacity
+                        style={[
+                            styles.completeButton,
+                            statusInfo.urgent && styles.completeButtonUrgent,
+                            isFastComplete && styles.completeButtonRowFlex,
+                        ]}
+                        onPress={isFastComplete ? handleComplete : handleCompleteWithProof}
+                        disabled={completing}
+                        activeOpacity={0.7}
+                    >
+                        {completing ? (
+                            <ActivityIndicator color="#fff" />
+                        ) : (
+                            <>
+                                <AppIcon
+                                    name={isFastComplete ? 'check-bold' : 'camera-outline'}
+                                    size={18}
+                                    color="#fff"
+                                />
+                                <Text style={styles.completeButtonText}>
+                                    {isFastComplete ? 'Complete' : 'Mark Complete'}
+                                </Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+
+                    {/* Secondary "add proof" affordance — opens the full modal */}
+                    {isFastComplete && (
+                        <TouchableOpacity
+                            style={styles.proofButton}
+                            onPress={handleCompleteWithProof}
+                            disabled={completing}
+                            activeOpacity={0.7}
+                        >
+                            <AppIcon name="camera-plus-outline" size={20} color={colors.primary} />
+                        </TouchableOpacity>
                     )}
-                </TouchableOpacity>
+                </View>
             )}
 
             <ConfirmModal
@@ -274,7 +418,134 @@ export default function GoalCard({ goal, status, onComplete, onNegativeLog, onVi
                 onCancel={() => setShowConfirmSlipUp(false)}
                 confirmStyle="danger"
             />
-        </View>
+
+            {/* Pause action sheet (long-press) */}
+            <Modal
+                visible={showPauseSheet}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowPauseSheet(false)}
+                statusBarTranslucent
+            >
+                <Pressable style={styles.sheetOverlay} onPress={() => setShowPauseSheet(false)}>
+                    {Platform.OS === 'ios' ? (
+                        <BlurView intensity={20} style={StyleSheet.absoluteFill} tint="dark" />
+                    ) : (
+                        <View style={[StyleSheet.absoluteFill, styles.sheetAndroidOverlay]} />
+                    )}
+                </Pressable>
+                <View style={styles.sheetContainer}>
+                    <View style={styles.sheetHandle} />
+                    <Text style={styles.sheetTitle}>"{goal.name}"</Text>
+                    <Text style={styles.sheetSubtitle}>
+                        {isPaused ? 'This goal is currently paused' : 'Pause auto-failures & deadline pressure'}
+                    </Text>
+
+                    <TouchableOpacity
+                        style={styles.sheetOption}
+                        onPress={() => handlePause(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))}
+                        disabled={pausing}
+                    >
+                        <Text style={styles.sheetOptionEmoji}>⏸</Text>
+                        <Text style={styles.sheetOptionText}>Pause for a week</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.sheetOption}
+                        onPress={() => { setShowPauseDatePicker(true); }}
+                        disabled={pausing}
+                    >
+                        <Text style={styles.sheetOptionEmoji}>📅</Text>
+                        <Text style={styles.sheetOptionText}>Pause until date…</Text>
+                    </TouchableOpacity>
+
+                    {isPaused && (
+                        <TouchableOpacity
+                            style={styles.sheetOption}
+                            onPress={handleResume}
+                            disabled={pausing}
+                        >
+                            <Text style={styles.sheetOptionEmoji}>▶️</Text>
+                            <Text style={styles.sheetOptionText}>Resume</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                        style={styles.sheetCancel}
+                        onPress={() => setShowPauseSheet(false)}
+                        disabled={pausing}
+                    >
+                        <Text style={styles.sheetCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                </View>
+            </Modal>
+
+            {/* Pause until date — date picker */}
+            <Modal
+                visible={showPauseDatePicker}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowPauseDatePicker(false)}
+                statusBarTranslucent
+            >
+                <Pressable style={styles.sheetOverlay} onPress={() => setShowPauseDatePicker(false)}>
+                    {Platform.OS === 'ios' ? (
+                        <BlurView intensity={20} style={StyleSheet.absoluteFill} tint="dark" />
+                    ) : (
+                        <View style={[StyleSheet.absoluteFill, styles.sheetAndroidOverlay]} />
+                    )}
+                </Pressable>
+                <View style={styles.datePickerContainer}>
+                    <View style={styles.sheetHandle} />
+                    <Text style={styles.sheetTitle}>Pause until…</Text>
+                    <Text style={styles.sheetSubtitle}>Pick the day you'll be back</Text>
+
+                    <Calendar
+                        markedDates={{
+                            [pausedUntil || '']: {
+                                selected: true,
+                                selectedColor: colors.primary,
+                            },
+                        }}
+                        onDayPress={handlePauseDayPress}
+                        minDate={today}
+                        theme={{
+                            backgroundColor: colors.surface,
+                            calendarBackground: colors.surface,
+                            textSectionTitleColor: colors.textMuted,
+                            selectedDayBackgroundColor: colors.primary,
+                            selectedDayTextColor: '#ffffff',
+                            todayTextColor: colors.primary,
+                            dayTextColor: colors.text,
+                            textDisabledColor: colors.textMuted,
+                            arrowColor: colors.primary,
+                            monthTextColor: colors.text,
+                            indicatorColor: colors.primary,
+                            textDayFontWeight: '500',
+                            textMonthFontWeight: 'bold',
+                            textDayHeaderFontWeight: '600',
+                        }}
+                        style={styles.datePickerCalendar}
+                    />
+
+                    <View style={styles.datePickerActions}>
+                        <TouchableOpacity
+                            style={styles.datePickerCancel}
+                            onPress={() => setShowPauseDatePicker(false)}
+                        >
+                            <Text style={styles.datePickerCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.datePickerConfirm, !pausedUntil && styles.datePickerConfirmDisabled]}
+                            onPress={confirmPauseUntil}
+                            disabled={!pausedUntil}
+                        >
+                            <Text style={styles.datePickerConfirmText}>Pause Until</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+        </Pressable>
     );
 }
 
@@ -310,7 +581,7 @@ const styles = StyleSheet.create({
         flex: 1,
         marginRight: 12,
     },
-    headerActions: {
+    titleRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
@@ -319,6 +590,23 @@ const styles = StyleSheet.create({
         color: colors.text,
         fontSize: 16,
         fontWeight: 'bold',
+        flexShrink: 1,
+    },
+    pausedBadge: {
+        backgroundColor: colors.textMuted + '20',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+    },
+    pausedBadgeText: {
+        color: colors.textMuted,
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     modeBadge: {
         backgroundColor: `${colors.success}20`,
@@ -389,6 +677,11 @@ const styles = StyleSheet.create({
     streakValue: {
         color: '#FF6B35',
     },
+    actionRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
     completeButton: {
         flexDirection: 'row',
         backgroundColor: colors.success,
@@ -403,6 +696,9 @@ const styles = StyleSheet.create({
         shadowRadius: 6,
         elevation: 3,
     },
+    completeButtonRowFlex: {
+        flex: 1,
+    },
     completeButtonUrgent: {
         backgroundColor: colors.primary,
         shadowColor: colors.primary,
@@ -411,6 +707,16 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 15,
         fontWeight: 'bold',
+    },
+    proofButton: {
+        width: 52,
+        alignSelf: 'stretch',
+        borderRadius: 8,
+        backgroundColor: colors.primary + '15',
+        borderWidth: 1,
+        borderColor: colors.primary + '40',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     negativeButton: {
         flexDirection: 'row',
@@ -430,5 +736,126 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 15,
         fontWeight: 'bold',
+    },
+    // Pause sheet styles
+    sheetOverlay: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    sheetAndroidOverlay: {
+        backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    },
+    sheetContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: colors.surface,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 24,
+        paddingTop: 12,
+        paddingBottom: 32,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    sheetHandle: {
+        alignSelf: 'center',
+        width: 40,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: colors.border,
+        marginBottom: 16,
+    },
+    sheetTitle: {
+        color: colors.text,
+        fontSize: 18,
+        fontWeight: '800',
+        textAlign: 'center',
+    },
+    sheetSubtitle: {
+        color: colors.textMuted,
+        fontSize: 13,
+        textAlign: 'center',
+        marginTop: 4,
+        marginBottom: 20,
+    },
+    sheetOption: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        backgroundColor: colors.surfaceHighlight,
+        marginBottom: 10,
+    },
+    sheetOptionEmoji: {
+        fontSize: 18,
+    },
+    sheetOptionText: {
+        color: colors.text,
+        fontSize: 15,
+        fontWeight: '600',
+    },
+    sheetCancel: {
+        paddingVertical: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        marginTop: 4,
+    },
+    sheetCancelText: {
+        color: colors.textMuted,
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    datePickerContainer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: colors.surface,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingHorizontal: 20,
+        paddingTop: 12,
+        paddingBottom: 32,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    datePickerCalendar: {
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 16,
+    },
+    datePickerActions: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    datePickerCancel: {
+        flex: 1,
+        paddingVertical: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        backgroundColor: colors.surfaceHighlight,
+    },
+    datePickerCancelText: {
+        color: colors.textMuted,
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    datePickerConfirm: {
+        flex: 1,
+        paddingVertical: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        backgroundColor: colors.primary,
+    },
+    datePickerConfirmDisabled: {
+        opacity: 0.5,
+    },
+    datePickerConfirmText: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: '800',
     },
 });

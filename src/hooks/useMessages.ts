@@ -31,10 +31,20 @@ export function useMessages(groupId: string) {
                 `)
                 .eq('group_id', groupId)
                 .order('created_at', { ascending: false })
+                .order('id', { ascending: false })
                 .limit(MESSAGES_PAGE_SIZE);
 
             if (before) {
-                query = query.lt('created_at', before);
+                // Composite cursor "created_at|id": a plain lt('created_at')
+                // skips/duplicates rows when several share the same
+                // millisecond timestamp. The id tiebreak in the ordering makes
+                // the (created_at DESC, id DESC) window fully deterministic.
+                const [createdAt, lastId] = before.split('|');
+                if (lastId) {
+                    query = query.or(`created_at.lt.${createdAt},and(created_at.eq.${createdAt},id.lt.${lastId})`);
+                } else {
+                    query = query.lt('created_at', before);
+                }
             }
 
             const { data, error: fetchError } = await query;
@@ -174,7 +184,7 @@ export function useMessages(groupId: string) {
         refetch: () => fetchMessages(),
         loadMore: () => {
             if (messages.length > 0) {
-                return fetchMessages(messages[0].created_at);
+                return fetchMessages(`${messages[0].created_at}|${messages[0].id}`);
             }
         },
     };

@@ -15,6 +15,7 @@ import { BlurView } from 'expo-blur';
 import { GoalWithCompletions, GoalCompletion, Profile } from '../types/database';
 import { colors } from '../theme/colors';
 import GoalStatsGraph from './GoalStatsGraph';
+import StreakBadge from './StreakBadge';
 
 interface MemberPerformance {
     user_id: string;
@@ -440,6 +441,17 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
                         ) : (
                             /* Stats Tab */
                             <View style={styles.statsTab}>
+                                {/* Streak Badge — only meaningful for positive goals */}
+                                {!isNegative && goal && (goal.current_streak || 0) > 0 && (
+                                    <View style={styles.streakBadgeRow}>
+                                        <StreakBadge
+                                            currentStreak={goal.current_streak || 0}
+                                            longestStreak={goal.longest_streak || 0}
+                                            size="medium"
+                                        />
+                                    </View>
+                                )}
+
                                 {/* Graph */}
                                 <GoalStatsGraph
                                     allMembersData={graphData}
@@ -839,6 +851,10 @@ const styles = StyleSheet.create({
     },
     statsTab: {
         padding: 16,
+    },
+    streakBadgeRow: {
+        alignItems: 'center',
+        marginBottom: 16,
     },
     weeklySummary: {
         backgroundColor: colors.surfaceHighlight,

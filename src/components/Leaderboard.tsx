@@ -12,6 +12,7 @@ import { colors } from '../theme/colors';
 import { useLeaderboard, LeaderboardPeriod } from '../hooks/useLeaderboard';
 import { useAuth } from '../hooks/useAuth';
 import EmptyState from './EmptyState';
+import StreakBadge from './StreakBadge';
 
 interface Props {
     groupId: string;
@@ -55,6 +56,11 @@ export default function Leaderboard({ groupId, showPeriodSelector = true, onMemb
             default: return colors.textMuted;
         }
     };
+
+    // The current user's aggregated streak (max across their goals in this
+    // group) for the "Your Rank" card.
+    const myEntry = user ? leaderboard.find(e => e.user_id === user.id) : undefined;
+    const myStreak = myEntry?.streak_days || 0;
 
     if (loading) {
         return (
@@ -102,6 +108,17 @@ export default function Leaderboard({ groupId, showPeriodSelector = true, onMemb
                 <View style={styles.myRankCard}>
                     <Text style={styles.myRankLabel}>Your Rank</Text>
                     <Text style={styles.myRankValue}>{getRankEmoji(getUserRank()!)}</Text>
+                    {myStreak > 0 && (
+                        <View style={styles.myStreak}>
+                            <StreakBadge
+                                currentStreak={myStreak}
+                                longestStreak={myStreak}
+                                size="small"
+                                showLongest={false}
+                                showMotivation={false}
+                            />
+                        </View>
+                    )}
                     <View style={styles.myBadges}>
                         {getUserBadges().slice(0, 3).map((badge) => {
                             const info = getBadgeInfo(badge.badge_type);
@@ -253,6 +270,9 @@ const styles = StyleSheet.create({
         fontSize: 32,
         fontWeight: 'bold',
         color: colors.text,
+    },
+    myStreak: {
+        marginTop: 12,
     },
     myBadges: {
         flexDirection: 'row',

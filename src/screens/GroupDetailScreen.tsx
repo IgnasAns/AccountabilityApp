@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
     View,
     Text,
@@ -19,11 +19,12 @@ import { safeHaptics } from '../utils/haptics';
 import { useAuth } from '../hooks/useAuth';
 import { useGroupDetail, useGroups } from '../hooks/useGroups';
 import { useTransactions } from '../hooks/useTransactions';
-import { useGoals } from '../hooks/useGoals';
+import { useGoals, AutoFailureInfo } from '../hooks/useGoals';
 import { StyledAlert } from '../components/StyledAlert';
 import Leaderboard from '../components/Leaderboard';
 import ActivityFeed from '../components/ActivityFeed';
 import ConfirmModal from '../components/ConfirmModal';
+import InviteCodeModal from '../components/InviteCodeModal';
 import DashboardTab from '../components/group/DashboardTab';
 import BalancesTab from '../components/group/BalancesTab';
 import SettingsTab from '../components/group/SettingsTab';
@@ -41,7 +42,7 @@ if (Platform.OS === 'android') {
 }
 
 type RootStackParamList = {
-    GroupDetail: { groupId: string };
+    GroupDetail: { groupId: string; showInviteModal?: boolean };
     GroupChat: { groupId: string; groupName: string };
 };
 
@@ -74,6 +75,39 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     const [showCompletionModal, setShowCompletionModal] = useState(false);
     const [showSettleConfirm, setShowSettleConfirm] = useState(false);
     const [pendingSettleId, setPendingSettleId] = useState<string | null>(null);
+    const [showInviteModal, setShowInviteModal] = useState(false);
+
+    // Only surface the invite-code modal once per navigation, right after the
+    // group is created. The ref guards against re-showing on every mount, and
+    // the param is cleared so it never re-triggers.
+    const inviteModalShownRef = useRef(false);
+
+    useEffect(() => {
+        if (route.params?.showInviteModal && !inviteModalShownRef.current) {
+            inviteModalShownRef.current = true;
+            setShowInviteModal(true);
+            navigation.setParams({ showInviteModal: undefined });
+        }
+    }, [route.params?.showInviteModal, navigation]);
+
+    // Auto-failure feedback: process_overdue_goals logged missed deadlines for
+    // the current user. GoalsSection reports it up (once per session), and we
+    // offer a one-tap jump to the ledger.
+    const handleAutoFailures = useCallback((info: AutoFailureInfo) => {
+        if (info.count <= 0) return;
+        const message = `${info.count} missed deadline${info.count !== 1 ? 's' : ''} were logged — you owe €${info.totalPenalty.toFixed(2)}. Tap to see the ledger`;
+        StyledAlert.alert('Auto-failure ⏰', message, [
+            {
+                text: 'View Ledger',
+                onPress: () => {
+                    safeHaptics('light');
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setActiveTab('balances');
+                },
+            },
+            { text: 'Later', style: 'cancel' },
+        ]);
+    }, []);
 
     // Refresh on focus
     useFocusEffect(
@@ -92,7 +126,7 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     const handleShareInvite = async () => {
         if (!group) return;
         try {
-            const message = `Join my accountability group "${group.name}" on "Do It Mate!"\nUse code: ${group.invite_code}`;
+            const message = `Join my accountability group "${group.name}" on "Do It Mate!"\nUse code: ${group.invite_code}\n\nOr tap to join instantly: doitmate://join?code=${group.invite_code}`;
             await Share.share({ message, title: 'Join Group' });
         } catch {
             // User cancelled or error
@@ -270,6 +304,8 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                         members={members}
                         onMemberPress={handleMemberIdPress}
                         onLogFailure={() => setShowFailureModal(true)}
+                        onShareInvite={handleShareInvite}
+                        onAutoFailures={handleAutoFailures}
                     />
                 )}
 
@@ -351,6 +387,14 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
                 confirmStyle="primary"
                 onConfirm={confirmSettleDebt}
                 onCancel={() => { setShowSettleConfirm(false); setPendingSettleId(null); }}
+            />
+
+            {/* Invite Code Modal — shown once right after the group is created */}
+            <InviteCodeModal
+                visible={showInviteModal}
+                inviteCode={group.invite_code}
+                groupName={group.name}
+                onClose={() => setShowInviteModal(false)}
             />
         </View>
     );

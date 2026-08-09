@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../hooks/useAuth';
+import { track } from '../services/track';
 import { colors } from '../theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyledAlert } from '../components/StyledAlert';
@@ -33,7 +34,7 @@ interface Props {
 }
 
 export default function ProfileScreen({ navigation }: Props) {
-    const { profile, updateProfile, signOut, deleteAccount, isGuest } = useAuth();
+    const { profile, session, updateProfile, signOut, deleteAccount, isGuest } = useAuth();
     const insets = useSafeAreaInsets();
     const [name, setName] = useState(profile?.name || '');
     const [paymentLink, setPaymentLink] = useState(profile?.payment_link || '');
@@ -146,6 +147,9 @@ export default function ProfileScreen({ navigation }: Props) {
         setShowDeleteModal(false);
         setDeleting(true);
         try {
+            // Track while the session is still valid — deleteAccount() clears
+            // it locally and RLS would drop an anonymous insert.
+            track('account_deleted');
             await deleteAccount();
             // No navigation needed — clearing the session swaps the navigator
             // back to the auth stack.
@@ -163,8 +167,9 @@ export default function ProfileScreen({ navigation }: Props) {
         if (profile?.name) {
             return profile.name.charAt(0).toUpperCase();
         }
-        if (profile?.email) {
-            return profile.email.charAt(0).toUpperCase();
+        // profiles has no email column — fall back to the auth session's email.
+        if (session?.user?.email) {
+            return session.user.email.charAt(0).toUpperCase();
         }
         return '?';
     };
@@ -195,8 +200,8 @@ export default function ProfileScreen({ navigation }: Props) {
                 <Text style={styles.profileName}>
                     {profile?.name || 'User'}
                 </Text>
-                {profile?.email && (
-                    <Text style={styles.profileEmail}>{profile.email}</Text>
+                {session?.user?.email && (
+                    <Text style={styles.profileEmail}>{session.user.email}</Text>
                 )}
             </View>
 

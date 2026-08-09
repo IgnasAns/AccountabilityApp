@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { Linking, Platform } from 'react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase, initAuthListener, cleanupAuthListener } from '../services/supabase';
+import { track } from '../services/track';
 import { Profile } from '../types/database';
 import { env } from '../config/env';
 import { rateLimiters } from '../utils/rateLimiter';
@@ -292,6 +293,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (data.user) {
             await fetchProfile(data.user.id);
         }
+
+        track('login_completed');
     }, [fetchProfile]);
 
     const signUp = useCallback(async (email: string, password: string, name: string) => {
@@ -318,7 +321,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 .upsert({
                     id: data.user.id,
                     name: name.trim(),
-                    email: email.toLowerCase().trim(),
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 });
@@ -329,6 +331,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             await fetchProfile(data.user.id);
         }
+
+        track('signup_completed');
     }, [fetchProfile]);
 
     const signOut = useCallback(async () => {
@@ -343,6 +347,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         try {
+            // Track while the session is still valid — the auth row is gone
+            // right after signOut and RLS would drop an anonymous insert.
+            track('logout');
             const { error } = await supabase.auth.signOut();
             if (error) {
                 // Fall back to local-only signout so the UI never stays

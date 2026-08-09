@@ -7,6 +7,8 @@ interface Props {
     longestStreak: number;
     size?: 'small' | 'medium' | 'large';
     showLongest?: boolean;
+    /** Hide the motivational one-liner (used in compact layouts). */
+    showMotivation?: boolean;
 }
 
 export default function StreakBadge({
@@ -14,6 +16,7 @@ export default function StreakBadge({
     longestStreak,
     size = 'medium',
     showLongest = true,
+    showMotivation = true,
 }: Props) {
     const getStreakColor = (streak: number): string => {
         if (streak >= 100) return '#FFD700'; // Gold
@@ -83,7 +86,7 @@ export default function StreakBadge({
                 </View>
             )}
 
-            {currentStreak > 0 && (
+            {currentStreak > 0 && showMotivation && (
                 <View style={styles.motivationContainer}>
                     <Text style={styles.motivationText}>
                         {getMotivationalMessage(currentStreak)}

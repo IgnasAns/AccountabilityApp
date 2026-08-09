@@ -1,4 +1,4 @@
-Do It Mate turns your goals into shared commitments — because a habit you promised a mate is far harder to skip than one you only promised yourself.
+Habit tracker for friends — accountability that actually works. Do It Mate turns your goals into shared commitments, because a habit you promised a mate is far harder to skip than one you only promised yourself.
 
 Create a private group, set a habit, agree what a slip-up costs, and track it together. Everyone can see who is on track and who owes what.
 
@@ -14,23 +14,24 @@ FEATURES
 • Habit and goal tracking with flexible schedules
 • Two goal modes: build a good habit, or break a bad one
 • Optional photo proof so completions are not just a tap
-• Streaks, badges and a group leaderboard
+• Streaks, badges and a group leaderboard to keep the momentum
 • Deadline reminders so a missed goal is never a surprise
 • Group chat and a full activity history
-• Balances showing exactly who owes what
+• Balances showing exactly who owes what — settle between yourselves
 • 20+ ready-made goal templates to start fast
 • Vacation mode to pause a goal without penalty
 
-GOOD FOR
+GREAT FOR
 • Gym and fitness commitments with a training partner
 • Reading, study and side-project consistency
 • Quitting or cutting down — smoking, sugar, doomscrolling
 • Flatmates, couples and teams keeping each other honest
+• 30-day challenges and habit streaks with your squad
+
+START SOLO, PULL IN YOUR CREW
+Invite one friend and the stakes get real in under a minute. No social feed, no strangers — just you and the people who'll actually hold you to it.
 
 HONEST ABOUT THE MONEY
 Do It Mate keeps the ledger, not your money. Penalties are tracked in the app so everyone can see the running total, and you settle up between yourselves however you normally would. There are no payments, no card details and no fees.
 
-WHAT YOU NEED
-At least one other person. Do It Mate is built around a group — solo habit tracking is not what it does well.
-
-Free to use. No ads.
+Free to use. No ads. No account needed to look around.

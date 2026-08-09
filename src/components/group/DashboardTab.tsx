@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Share } from 'react-native';
 import { colors } from '../../theme/colors';
 import GoalsSection from '../GoalsSection';
 import { Group, GroupMemberWithProfile } from '../../types/database';
+import { AutoFailureInfo } from '../../hooks/useGoals';
 import AppIcon from '../AppIcon';
 
 interface Props {
@@ -12,6 +13,10 @@ interface Props {
     members: GroupMemberWithProfile[];
     onMemberPress: (userId: string) => void;
     onLogFailure: () => void;
+    /** Opens the same share sheet as GroupDetailScreen.handleShareInvite. */
+    onShareInvite?: () => void;
+    /** Fired when the overdue-processor logs failures for the current user. */
+    onAutoFailures?: (info: AutoFailureInfo) => void;
 }
 
 export default function DashboardTab({
@@ -21,6 +26,8 @@ export default function DashboardTab({
     members,
     onMemberPress,
     onLogFailure,
+    onShareInvite,
+    onAutoFailures,
 }: Props) {
     const formatBalance = (amount: number) => {
         return `€${Math.abs(amount).toFixed(2)}`;
@@ -37,6 +44,24 @@ export default function DashboardTab({
         if (amount < 0) return 'You Owe';
         return 'Settled';
     };
+
+    // Same share sheet as GroupDetailScreen.handleShareInvite (falls back to
+    // the identical message when no handler was passed down).
+    const handleInviteMate = async () => {
+        if (onShareInvite) {
+            onShareInvite();
+            return;
+        }
+        try {
+            const message = `Join my accountability group "${group.name}" on "Do It Mate!"\nUse code: ${group.invite_code}\n\nOr tap to join instantly: doitmate://join?code=${group.invite_code}`;
+            await Share.share({ message, title: 'Join Group' });
+        } catch {
+            // User cancelled or error
+        }
+    };
+
+    // Solo group: the ledger has nobody to pay. Nudge the creator to invite.
+    const isSolo = members.length === 1;
 
     return (
         <View>
@@ -71,6 +96,28 @@ export default function DashboardTab({
                 </TouchableOpacity>
             </View>
 
+            {/* Invite-a-mate card — shown while the group has only the creator */}
+            {isSolo && (
+                <View style={styles.inviteCard}>
+                    <View style={styles.inviteIcon}>
+                        <AppIcon name="account-multiple-plus-outline" size={24} color={colors.primary} />
+                    </View>
+                    <View style={styles.inviteContent}>
+                        <Text style={styles.inviteTitle}>Invite a mate</Text>
+                        <Text style={styles.inviteText}>
+                            The stakes aren't real solo — invite a friend to start the ledger
+                        </Text>
+                    </View>
+                    <TouchableOpacity
+                        style={styles.inviteButton}
+                        onPress={handleInviteMate}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={styles.inviteButtonText}>Invite</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
             {/* Goals Section */}
             <GoalsSection
                 groupId={groupId}
@@ -81,6 +128,7 @@ export default function DashboardTab({
                     name: m.profile?.name || 'Unknown',
                 }))}
                 onMemberPress={onMemberPress}
+                onAutoFailures={onAutoFailures}
             />
         </View>
     );
@@ -146,10 +194,55 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.error + '30',
     },
-    failureButtonIcon: {},
     failureButtonText: {
         color: colors.error,
         fontWeight: '700',
         fontSize: 15,
+    },
+    inviteCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginHorizontal: 16,
+        marginTop: 16,
+        padding: 16,
+        borderRadius: 8,
+        backgroundColor: colors.primary + '12',
+        borderWidth: 1,
+        borderColor: colors.primary + '40',
+        borderStyle: 'dashed',
+    },
+    inviteIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 8,
+        backgroundColor: colors.primaryMuted,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    inviteContent: {
+        flex: 1,
+    },
+    inviteTitle: {
+        color: colors.text,
+        fontSize: 14,
+        fontWeight: '800',
+        marginBottom: 2,
+    },
+    inviteText: {
+        color: colors.textMuted,
+        fontSize: 12,
+        lineHeight: 17,
+    },
+    inviteButton: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 8,
+    },
+    inviteButtonText: {
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: 13,
     },
 });

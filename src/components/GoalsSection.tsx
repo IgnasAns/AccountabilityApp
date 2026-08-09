@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -6,7 +6,7 @@ import {
     StyleSheet,
     ActivityIndicator,
 } from 'react-native';
-import { useGoals } from '../hooks/useGoals';
+import { useGoals, AutoFailureInfo } from '../hooks/useGoals';
 import GoalCard from './GoalCard';
 import CreateGoalModal from './CreateGoalModal';
 import GoalCalendarModal from './GoalCalendarModal';
@@ -22,9 +22,11 @@ interface Props {
     defaultPenalty: number;
     groupMembers?: { id: string; name: string }[];
     onMemberPress: (userId: string) => void;
+    /** Fired when the overdue-processor logs failures for this user. */
+    onAutoFailures?: (info: AutoFailureInfo) => void;
 }
 
-export default function GoalsSection({ groupId, groupName, defaultPenalty, groupMembers = [], onMemberPress }: Props) {
+export default function GoalsSection({ groupId, groupName, defaultPenalty, groupMembers = [], onMemberPress, onAutoFailures }: Props) {
     const {
         goals,
         loading,
@@ -33,6 +35,9 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
         logCompletion,
         logNegativeOccurrence,
         getGoalStatus,
+        toggleGoalPause,
+        autoFailures,
+        clearAutoFailures,
         refetch,
     } = useGoals(groupId);
 
@@ -41,6 +46,16 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
     const [showCalendar, setShowCalendar] = useState(false);
     const [showCompleteModal, setShowCompleteModal] = useState(false);
     const [goalToComplete, setGoalToComplete] = useState<GoalWithCompletions | null>(null);
+
+    // Surface auto-failure feedback (task: "N missed deadlines were logged").
+    // The hook only reports once per session per group, so this fires at most
+    // once no matter how many useGoals instances mount.
+    useEffect(() => {
+        if (autoFailures && autoFailures.count > 0) {
+            onAutoFailures?.(autoFailures);
+            clearAutoFailures();
+        }
+    }, [autoFailures, onAutoFailures, clearAutoFailures]);
 
     const handleCreateGoal = async (
         name: string,
@@ -70,8 +85,8 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
         }
     };
 
-    // Opens the completion modal (photo required)
-    const handleComplete = async (goalId: string) => {
+    // Opens the completion modal (photo proof / notes)
+    const handleCompleteWithProof = (goalId: string) => {
         const goal = goals.find(g => g.id === goalId);
         if (goal) {
             setGoalToComplete(goal);
@@ -79,12 +94,37 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
         }
     };
 
+    // 1-tap fast path for positive goals without a proof requirement.
+    const handleQuickComplete = async (goalId: string) => {
+        const goal = goals.find(g => g.id === goalId);
+        try {
+            const result = await logCompletion(goalId);
+            if (result?.milestone) {
+                StyledAlert.alert(
+                    `${result.milestone.days}-day streak! 🔥`,
+                    `Keep it going on "${result.milestone.goalName}"!`
+                );
+            } else {
+                StyledAlert.alert('Completed', `Great job completing "${goal?.name}".`);
+            }
+        } catch (err: unknown) {
+            StyledAlert.alert('Error', (err instanceof Error ? err.message : "An error occurred"));
+        }
+    };
+
     // Called when completion modal submits with photo
     const handleSubmitCompletion = async (goalId: string, proofPhotoUrl: string, notes?: string) => {
         try {
-            await logCompletion(goalId, proofPhotoUrl, notes);
+            const result = await logCompletion(goalId, proofPhotoUrl, notes);
             const goal = goals.find(g => g.id === goalId);
-            StyledAlert.alert('Completed', `Great job completing "${goal?.name}".`);
+            if (result?.milestone) {
+                StyledAlert.alert(
+                    `${result.milestone.days}-day streak! 🔥`,
+                    `Keep it going on "${result.milestone.goalName}"!`
+                );
+            } else {
+                StyledAlert.alert('Completed', `Great job completing "${goal?.name}".`);
+            }
         } catch (err: unknown) {
             StyledAlert.alert('Error', (err instanceof Error ? err.message : "An error occurred"));
             throw err;
@@ -126,7 +166,7 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
         return (
             <View style={styles.errorContainer}>
                 <Text style={styles.errorText}>Failed to load goals</Text>
-                <TouchableOpacity style={styles.retryButton} onPress={refetch}>
+                <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
                     <Text style={styles.retryButtonText}>Retry</Text>
                 </TouchableOpacity>
             </View>
@@ -179,9 +219,11 @@ export default function GoalsSection({ groupId, groupName, defaultPenalty, group
                             key={goal.id}
                             goal={goal}
                             status={getGoalStatus(goal)}
-                            onComplete={handleComplete}
+                            onComplete={handleQuickComplete}
+                            onCompleteWithProof={handleCompleteWithProof}
                             onNegativeLog={handleNegativeLog}
                             onViewCalendar={handleViewCalendar}
+                            onTogglePause={toggleGoalPause}
                         />
                     ))}
                 </View>

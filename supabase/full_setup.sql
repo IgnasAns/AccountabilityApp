@@ -86,16 +86,19 @@ $$;
 DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
 CREATE POLICY "Public profiles are viewable by everyone."
   ON profiles FOR SELECT
+  TO authenticated
   USING ( true );
 
 DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
 CREATE POLICY "Users can insert their own profile."
   ON profiles FOR INSERT
+  TO authenticated
   WITH CHECK ( auth.uid() = id );
 
 DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
 CREATE POLICY "Users can update own profile."
   ON profiles FOR UPDATE
+  TO authenticated
   USING ( auth.uid() = id );
 
 -- Groups Policies
@@ -136,44 +139,90 @@ CREATE POLICY "Users can view transactions involving them or their groups."
     OR group_id IN ( SELECT get_my_group_ids() )
   );
 
+-- Delete / Update Policies (deleteGroup, leaveGroup, updateGroup features)
+DROP POLICY IF EXISTS "groups_delete" ON public.groups;
+CREATE POLICY "groups_delete"
+  ON groups FOR DELETE
+  TO authenticated
+  USING ( auth.uid() = created_by );
+
+DROP POLICY IF EXISTS "Authenticated users can update their groups." ON public.groups;
+CREATE POLICY "Authenticated users can update their groups."
+  ON groups FOR UPDATE
+  TO authenticated
+  USING ( created_by = auth.uid() );
+
+DROP POLICY IF EXISTS "group_members_delete" ON public.group_members;
+CREATE POLICY "group_members_delete"
+  ON group_members FOR DELETE
+  TO authenticated
+  USING (
+    (auth.uid() = user_id)
+    OR (auth.uid() = (SELECT groups.created_by FROM groups WHERE groups.id = group_members.group_id))
+  );
+
+DROP POLICY IF EXISTS "transactions_delete" ON public.transactions;
+CREATE POLICY "transactions_delete"
+  ON transactions FOR DELETE
+  TO authenticated
+  USING (
+    auth.uid() = (SELECT groups.created_by FROM groups WHERE groups.id = transactions.group_id)
+  );
+
 -- 5. CREATE RPC FUNCTIONS
 -- ---------------------------------------------------------------------------
 
 -- Function: join_group_by_code
-CREATE OR REPLACE FUNCTION join_group_by_code(p_invite_code text)
-RETURNS json
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.join_group_by_code(p_invite_code text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
-  v_group_id uuid;
-  v_user_id uuid;
-  v_already_member boolean;
+    v_user_id UUID := auth.uid();
+    v_group RECORD;
+    v_attempt RECORD;
+    v_max_attempts CONSTANT INTEGER := 20;
+    v_window CONSTANT INTERVAL := '1 hour';
 BEGIN
-  v_user_id := auth.uid();
-  
-  -- Find group
-  SELECT id INTO v_group_id FROM public.groups WHERE invite_code = p_invite_code;
-  
-  IF v_group_id IS NULL THEN
-    RETURN json_build_object('success', false, 'error', 'Invalid invite code');
-  END IF;
+    IF v_user_id IS NULL THEN
+        RETURN json_build_object('success', false, 'error', 'Not authenticated');
+    END IF;
 
-  -- Check membership
-  SELECT exists(SELECT 1 FROM public.group_members WHERE group_id = v_group_id AND user_id = v_user_id)
-  INTO v_already_member;
+    -- Rate limit: max 20 guesses per user per hour
+    SELECT * INTO v_attempt FROM invite_attempts WHERE user_id = v_user_id;
+    IF v_attempt.user_id IS NOT NULL THEN
+        IF v_attempt.window_start < now() - v_window THEN
+            UPDATE invite_attempts
+            SET attempt_count = 1, window_start = now()
+            WHERE user_id = v_user_id;
+        ELSIF v_attempt.attempt_count >= v_max_attempts THEN
+            RETURN json_build_object('success', false, 'error', 'Too many attempts. Try again later.');
+        ELSE
+            UPDATE invite_attempts
+            SET attempt_count = attempt_count + 1
+            WHERE user_id = v_user_id;
+        END IF;
+    ELSE
+        INSERT INTO invite_attempts (user_id, attempt_count) VALUES (v_user_id, 1);
+    END IF;
 
-  IF v_already_member THEN
-    RETURN json_build_object('success', false, 'error', 'Already a member');
-  END IF;
+    SELECT * INTO v_group FROM groups WHERE invite_code = upper(p_invite_code);
+    IF v_group.id IS NULL THEN
+        RETURN json_build_object('success', false, 'error', 'Invalid invite code');
+    END IF;
 
-  -- Add to group
-  INSERT INTO public.group_members (group_id, user_id)
-  VALUES (v_group_id, v_user_id);
+    IF EXISTS (SELECT 1 FROM group_members WHERE group_id = v_group.id AND user_id = v_user_id) THEN
+        RETURN json_build_object('success', false, 'error', 'Already a member');
+    END IF;
 
-  RETURN json_build_object('success', true, 'group_id', v_group_id);
+    INSERT INTO public.group_members (group_id, user_id)
+    VALUES (v_group.id, v_user_id);
+
+    RETURN json_build_object('success', true, 'group_id', v_group.id);
 END;
-$$;
+$function$;
 
 -- Function: log_failure (Updated with proof_photo_url)
 CREATE OR REPLACE FUNCTION log_failure(p_group_id uuid, p_description text, p_proof_photo_url text DEFAULT NULL)

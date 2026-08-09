@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '../theme/colors';
+import { track } from '../services/track';
 
 interface Props {
     children: ReactNode;
@@ -26,8 +27,12 @@ export default class ErrorBoundary extends Component<Props, State> {
         return { hasError: true, error };
     }
 
-    componentDidCatch(_error: Error, _errorInfo: ErrorInfo) {
-        // In production, send to error tracking service (e.g., Sentry, Crashlytics)
+    componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+        // Report the crash to analytics (fire-and-forget, never throws).
+        track('crash', {
+            error: String(error),
+            stack: String(errorInfo.componentStack),
+        });
     }
 
     handleRetry = () => {

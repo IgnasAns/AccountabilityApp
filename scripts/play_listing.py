@@ -33,8 +33,8 @@ PLAY = REPO / "assets" / "google-play"
 NEW = PLAY / "v1.0.11-vc15"
 OLD = PLAY / "v1.0.10-vc14"
 
-TITLE = "Do It Mate: Group Habit Goals"
-SHORT = "Set habit goals with mates. Miss one, you owe them. Proof photos keep it honest."
+TITLE = "Do It Mate: Habit Tracker"
+SHORT = "Habit tracker for friends. Miss one, owe the group. Photo proof keeps it real."
 FULL = (REPO / "scripts" / "store_full_description.txt").read_text(encoding="utf-8").strip()
 
 # imageType -> list of files. Order is the order shown on the listing.

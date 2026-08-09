@@ -40,6 +40,7 @@ ORDER = [
     "migrations/012_push_notifications.sql",
     "migrations/013_secure_goal_templates.sql",
     "migrations/014_account_deletion.sql",
+    "migrations/015_security_hardening.sql",
 ]
 
 HEADER = f"""-- ============================================================================

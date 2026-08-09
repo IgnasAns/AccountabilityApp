@@ -15,12 +15,12 @@
 -- happened to create a group must not wipe out everyone else's history.
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION delete_my_account()
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, auth
-AS $$
+CREATE OR REPLACE FUNCTION public.delete_my_account()
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'auth'
+AS $function$
 DECLARE
     v_user_id UUID := auth.uid();
     v_group RECORD;
@@ -65,8 +65,26 @@ BEGIN
     --    these to, so remove them (cascades completions and comments).
     DELETE FROM goals WHERE created_by = v_user_id;
 
-    -- 3. Money owed in either direction. Deleting an account discards the
-    --    ledger it took part in — surfaced in the UI before confirming.
+    -- 3. Money owed in either direction. Settle counterparties first so the
+    --    remaining members' balances stay consistent after the transactions
+    --    are removed: a pending debt the departed user owed is voided (the
+    --    creditor's phantom credit is reversed), and a pending debt owed TO
+    --    the departed user is written off (the debtor's phantom debit is
+    --    reversed).
+    UPDATE group_members gm SET current_balance = gm.current_balance - t.amount
+    FROM transactions t
+    WHERE t.from_user_id = v_user_id
+      AND t.to_user_id = gm.user_id
+      AND t.group_id = gm.group_id
+      AND t.status = 'pending';
+
+    UPDATE group_members gm SET current_balance = gm.current_balance + t.amount
+    FROM transactions t
+    WHERE t.to_user_id = v_user_id
+      AND t.from_user_id = gm.user_id
+      AND t.group_id = gm.group_id
+      AND t.status = 'pending';
+
     DELETE FROM transactions
     WHERE from_user_id = v_user_id OR to_user_id = v_user_id;
 
@@ -87,7 +105,8 @@ BEGIN
         'groups_transferred', v_groups_transferred
     );
 END;
-$$;
+$function$;
+
 
 -- Only the signed-in user can invoke it, and it only ever acts on auth.uid(),
 -- so there is no way to aim it at somebody else's account.

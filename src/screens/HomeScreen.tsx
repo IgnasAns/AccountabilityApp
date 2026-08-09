@@ -2,6 +2,7 @@ import React, { useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, RefreshControl, StyleSheet, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../hooks/useAuth';
 import { useGroups } from '../hooks/useGroups';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -9,6 +10,9 @@ import { colors } from '../theme/colors';
 import { SkeletonGroupCard } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import AppIcon from '../components/AppIcon';
+
+// Shown once per install when the user has no groups yet.
+const ONBOARDING_PACT_SEEN_KEY = '@doitmate/onboarding_pact_seen';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -19,6 +23,7 @@ export default function HomeScreen({ navigation }: Props) {
     const { groups, groupBalances, netBalance, loading, refetch, error } = useGroups();
     const [refreshing, setRefreshing] = React.useState(false);
     const [longLoading, setLongLoading] = React.useState(false);
+    const [showOnboardingCard, setShowOnboardingCard] = React.useState(false);
     const insets = useSafeAreaInsets();
 
     // Refetch when screen comes into focus
@@ -27,6 +32,41 @@ export default function HomeScreen({ navigation }: Props) {
             refetch();
         }, [refetch])
     );
+
+    // One-time (per install) "set up your first pact" card when the user has
+    // zero groups. The flag is only read when groups are empty, so existing
+    // users never see it.
+    React.useEffect(() => {
+        if (groups.length > 0) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const seen = await AsyncStorage.getItem(ONBOARDING_PACT_SEEN_KEY);
+                if (!cancelled && !seen) {
+                    setShowOnboardingCard(true);
+                }
+            } catch {
+                // Non-critical — default to showing the card
+                if (!cancelled) setShowOnboardingCard(true);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [groups.length]);
+
+    const dismissOnboardingCard = useCallback(() => {
+        setShowOnboardingCard(false);
+        AsyncStorage.setItem(ONBOARDING_PACT_SEEN_KEY, 'true').catch(() => {});
+    }, []);
+
+    const handlePickChallenge = useCallback(() => {
+        dismissOnboardingCard();
+        navigation.navigate('ExploreTab');
+    }, [dismissOnboardingCard, navigation]);
+
+    const handleHaveInviteCode = useCallback(() => {
+        dismissOnboardingCard();
+        navigation.navigate('JoinGroup');
+    }, [dismissOnboardingCard, navigation]);
 
     // Track if loading takes too long
     React.useEffect(() => {
@@ -157,13 +197,58 @@ export default function HomeScreen({ navigation }: Props) {
                     <Text style={styles.sectionTitle}>Accountability Groups</Text>
 
                     {groups.length === 0 ? (
-                        <EmptyState
-                            icon="target"
-                            title="No active groups yet"
-                            subtitle="Create a group or join one with an invite code to start tracking goals with friends."
-                            actionLabel="Start a Group"
-                            onAction={() => navigation.navigate('CreateGroup')}
-                        />
+                        <>
+                            {/* One-time onboarding: set up your first pact */}
+                            {showOnboardingCard && (
+                                <View style={styles.onboardingCard}>
+                                    <View style={styles.onboardingHeader}>
+                                        <View style={styles.onboardingIcon}>
+                                            <AppIcon name="handshake" size={26} color={colors.primary} />
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.onboardingClose}
+                                            onPress={dismissOnboardingCard}
+                                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                        >
+                                            <AppIcon name="close" size={18} color={colors.textMuted} />
+                                        </TouchableOpacity>
+                                    </View>
+                                    <Text style={styles.onboardingTitle}>
+                                        Set up your first pact (1 min)
+                                    </Text>
+                                    <Text style={styles.onboardingSubtitle}>
+                                        Pick a challenge or jump straight into a friend's group — the
+                                        ledger only gets real once you're both in.
+                                    </Text>
+                                    <View style={styles.onboardingActions}>
+                                        <TouchableOpacity
+                                            style={styles.onboardingPrimaryButton}
+                                            onPress={handlePickChallenge}
+                                            activeOpacity={0.8}
+                                        >
+                                            <AppIcon name="compass-outline" size={18} color="#fff" />
+                                            <Text style={styles.onboardingPrimaryText}>Pick a challenge</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={styles.onboardingSecondaryButton}
+                                            onPress={handleHaveInviteCode}
+                                            activeOpacity={0.8}
+                                        >
+                                            <AppIcon name="link-variant" size={18} color={colors.primary} />
+                                            <Text style={styles.onboardingSecondaryText}>I have an invite code</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
+
+                            <EmptyState
+                                icon="target"
+                                title="No active groups yet"
+                                subtitle="Create a group or join one with an invite code to start tracking goals with friends."
+                                actionLabel="Start a Group"
+                                onAction={() => navigation.navigate('CreateGroup')}
+                            />
+                        </>
                     ) : (
                         groupBalances.map(({ group, balance }) => (
                             <TouchableOpacity
@@ -468,6 +553,81 @@ const styles = StyleSheet.create({
         color: colors.text,
         fontWeight: 'bold',
         fontSize: 13,
+    },
+    onboardingCard: {
+        backgroundColor: colors.surface,
+        borderRadius: 8,
+        borderWidth: 2,
+        borderColor: colors.primary,
+        padding: 18,
+        marginBottom: 16,
+    },
+    onboardingHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        marginBottom: 12,
+    },
+    onboardingIcon: {
+        width: 48,
+        height: 48,
+        borderRadius: 8,
+        backgroundColor: colors.primaryMuted,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    onboardingClose: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: colors.surfaceHighlight,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    onboardingTitle: {
+        color: colors.text,
+        fontSize: 17,
+        fontWeight: '800',
+        marginBottom: 6,
+    },
+    onboardingSubtitle: {
+        color: colors.textMuted,
+        fontSize: 13,
+        lineHeight: 19,
+        marginBottom: 16,
+    },
+    onboardingActions: {
+        gap: 10,
+    },
+    onboardingPrimaryButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: colors.primary,
+        paddingVertical: 13,
+        borderRadius: 8,
+    },
+    onboardingPrimaryText: {
+        color: '#fff',
+        fontWeight: '800',
+        fontSize: 14,
+    },
+    onboardingSecondaryButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: colors.primary + '12',
+        borderWidth: 1,
+        borderColor: colors.primary + '40',
+        paddingVertical: 13,
+        borderRadius: 8,
+    },
+    onboardingSecondaryText: {
+        color: colors.primary,
+        fontWeight: '700',
+        fontSize: 14,
     },
     infoSection: {
         marginTop: 0,

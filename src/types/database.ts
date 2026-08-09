@@ -14,7 +14,6 @@ export interface Database {
                 Row: {
                     id: string;
                     name: string;
-                    email: string | null;
                     avatar_url: string | null;
                     payment_link: string | null;
                     created_at: string;
@@ -23,7 +22,6 @@ export interface Database {
                 Insert: {
                     id: string;
                     name: string;
-                    email?: string | null;
                     avatar_url?: string | null;
                     payment_link?: string | null;
                     created_at?: string;
@@ -32,7 +30,6 @@ export interface Database {
                 Update: {
                     id?: string;
                     name?: string;
-                    email?: string | null;
                     avatar_url?: string | null;
                     payment_link?: string | null;
                     updated_at?: string;

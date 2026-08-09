@@ -21,15 +21,30 @@ import AppIcon from '../components/AppIcon';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
+    route?: {
+        params?: {
+            inviteCode?: string;
+        };
+    };
 }
 
-export default function JoinGroupScreen({ navigation }: Props) {
+export default function JoinGroupScreen({ navigation, route }: Props) {
     const { joinGroup } = useGroups();
     const { user } = useAuth();
     const insets = useSafeAreaInsets();
-    const [inviteCode, setInviteCode] = useState('');
+    const [inviteCode, setInviteCode] = useState(route?.params?.inviteCode?.toUpperCase() || '');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // Prefill from deep links (doitmate://join?code=XXXXXXXX) whenever the
+    // param arrives, cold start or warm.
+    React.useEffect(() => {
+        const code = route?.params?.inviteCode;
+        if (code) {
+            setInviteCode(code.toUpperCase());
+            if (error) setError(null);
+        }
+    }, [route?.params?.inviteCode, error]);
 
     const handleJoin = async () => {
         // Sanitize the invite code

@@ -93,8 +93,9 @@ export default function CreateGroupScreen({ navigation, route }: Props) {
 
             safeHaptics('success');
 
-            // Navigate to the new group
-            navigation.replace('GroupDetail', { groupId: group.id });
+            // Navigate to the new group, and ask GroupDetail to surface the
+            // invite-code modal once so the creator can share the pact.
+            navigation.replace('GroupDetail', { groupId: group.id, showInviteModal: true });
         } catch (error: unknown) {
             safeHaptics('error');
             StyledAlert.alert('Error', (error instanceof Error ? error.message : "Failed to create group"));

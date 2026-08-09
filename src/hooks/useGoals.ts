@@ -1,21 +1,52 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../services/supabase';
 import { useAuth } from './useAuth';
+import { RealtimeChannel } from '@supabase/supabase-js';
 import { Goal, GoalCompletion, GoalWithCompletions, GoalStatus, GoalCategory, Profile } from '../types/database';
 import { DEFAULT_PAGE_SIZE } from '../constants';
 import { sanitizeName, sanitizeText, sanitizeNumber } from '../utils/sanitize';
 import { maybeRequestReview } from '../services/reviewPrompt';
+
+// Streak milestones worth celebrating. Mirrors the server's streak_achieved
+// activity event thresholds (7/30/100/365), minus 365 which the app never
+// shows (a year-long streak needs no nudge).
+const STREAK_MILESTONES = [7, 30, 100] as const;
+
+/**
+ * Overdue processing is a group-level concern, but useGoals is instantiated
+ * per screen section (GroupDetailScreen + GoalsSection both mount it for the
+ * same group). These module-level sets make sure the RPC runs once per app
+ * session per group and that the "N missed deadlines" alert fires at most
+ * once — regardless of how many instances mount or in what order their
+ * effects run.
+ */
+const overdueProcessedGroups = new Set<string>();
+const autoFailureNotifiedGroups = new Set<string>();
+
+export interface AutoFailureInfo {
+    count: number;
+    totalPenalty: number;
+}
+
+export interface CompletionResult {
+    data: GoalCompletion;
+    /** Set when this completion pushed the streak to a 7/30/100 milestone. */
+    milestone: { days: number; goalName: string } | null;
+}
 
 export function useGoals(groupId: string) {
     const { user } = useAuth();
     const [goals, setGoals] = useState<GoalWithCompletions[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [overdueProcessed, setOverdueProcessed] = useState(false);
+    const [autoFailures, setAutoFailures] = useState<AutoFailureInfo | null>(null);
+    // Current goal ids for this group — kept in a ref so realtime handlers can
+    // check membership without re-subscribing on every fetch.
+    const goalIdsRef = useRef<string[]>([]);
 
     // Process overdue goals (auto-failure at midnight check)
-    const processOverdueGoals = useCallback(async () => {
-        if (!user || !groupId) return;
+    const processOverdueGoals = useCallback(async (): Promise<AutoFailureInfo | null> => {
+        if (!user || !groupId) return null;
 
         try {
             const { data, error: rpcError } = await supabase.rpc('process_overdue_goals', {
@@ -24,12 +55,22 @@ export function useGoals(groupId: string) {
 
             if (rpcError) {
                 // Function might not exist yet - that's OK, just skip
-                return;
+                return null;
             }
 
             if (data?.failures_processed > 0) {
-                // Will trigger a refetch below
-                return data;
+                const info: AutoFailureInfo = {
+                    count: data.failures_processed,
+                    totalPenalty: data.total_penalty || 0,
+                };
+
+                // Report once per session even if several useGoals instances
+                // race to process the same group.
+                if (!autoFailureNotifiedGroups.has(groupId)) {
+                    autoFailureNotifiedGroups.add(groupId);
+                    setAutoFailures(info);
+                }
+                return info;
             }
         } catch (err) {
             // Silently fail - this is a background operation
@@ -37,17 +78,25 @@ export function useGoals(groupId: string) {
         return null;
     }, [user, groupId]);
 
-    const fetchGoals = useCallback(async () => {
-        if (!user || !groupId) return;
+    /**
+     * Fetch goals for this group. Returns the merged rows so callers can
+     * inspect post-fetch state (e.g. streak milestones). Pass `{ silent: true }`
+     * for background refreshes (realtime, pull-to-refresh) to avoid flashing
+     * the loading spinner.
+     */
+    const fetchGoals = useCallback(async (opts?: { silent?: boolean }): Promise<GoalWithCompletions[] | undefined> => {
+        if (!user || !groupId) return undefined;
 
         try {
-            setLoading(true);
+            if (!opts?.silent) {
+                setLoading(true);
+            }
             setError(null);
 
-            // First, process any overdue goals (only once per session)
-            if (!overdueProcessed) {
+            // First, process any overdue goals (only once per session per group)
+            if (!overdueProcessedGroups.has(groupId)) {
+                overdueProcessedGroups.add(groupId);
                 await processOverdueGoals();
-                setOverdueProcessed(true);
             }
 
             // Fetch goals for the group
@@ -80,23 +129,119 @@ export function useGoals(groupId: string) {
             }
 
             // Merge completions into goals
-            // Merge completions into goals
             const goalsWithCompletions: GoalWithCompletions[] = (goalsData || []).map((goal: Goal & { creator?: Profile }) => ({
                 ...goal,
                 completions: completionsData.filter(c => c.goal_id === goal.id),
             }));
 
+            goalIdsRef.current = goalIds;
             setGoals(goalsWithCompletions);
+            return goalsWithCompletions;
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'Failed to load goals');
+            return undefined;
         } finally {
-            setLoading(false);
+            if (!opts?.silent) {
+                setLoading(false);
+            }
         }
-    }, [user, groupId, overdueProcessed, processOverdueGoals]);
+    }, [user, groupId, processOverdueGoals]);
 
     useEffect(() => {
         fetchGoals();
     }, [fetchGoals]);
+
+    // Realtime: mirror the useMessages postgres_changes pattern so goals and
+    // completions stay fresh when a mate acts while the screen is open.
+    // The goals table is filtered to the user's groups (group_id=in.(...));
+    // goal_completions has no group_id column, so it is filtered by this
+    // group's goal ids instead (and the handler double-checks membership).
+    const goalIdsKey = goals.map(g => g.id).sort().join(',');
+
+    useEffect(() => {
+        if (!user || !groupId) return;
+
+        let cancelled = false;
+        let channel: RealtimeChannel | null = null;
+
+        const setupRealtime = async () => {
+            // Group ids for the user's memberships — the in.(...) filter.
+            const { data: memberships } = await supabase
+                .from('group_members')
+                .select('group_id')
+                .eq('user_id', user.id);
+
+            if (cancelled) return;
+            const groupIds = (memberships || []).map((m: { group_id: string }) => m.group_id);
+            if (groupIds.length === 0) return;
+
+            // Rebuild the completion filter whenever this group's goal ids
+            // change so brand-new goals are covered by the subscription.
+            const { data: goalRows } = await supabase
+                .from('goals')
+                .select('id')
+                .eq('group_id', groupId)
+                .eq('is_active', true);
+
+            if (cancelled) return;
+            const goalIds = (goalRows || []).map((g: { id: string }) => g.id);
+            const completionFilter = goalIds.length > 0 ? `goal_id=in.(${goalIds.join(',')})` : undefined;
+
+            const newChannel = supabase
+                .channel(`goals-realtime:${groupId}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'goals',
+                        filter: `group_id=in.(${groupIds.join(',')})`,
+                    },
+                    (payload) => {
+                        const eventGroupId =
+                            (payload.new as Record<string, unknown> | undefined)?.group_id ??
+                            (payload.old as Record<string, unknown> | undefined)?.group_id;
+                        if (eventGroupId === groupId) {
+                            fetchGoals({ silent: true });
+                        }
+                    }
+                )
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'goal_completions',
+                        filter: completionFilter,
+                    },
+                    (payload) => {
+                        const eventGoalId =
+                            (payload.new as Record<string, unknown> | undefined)?.goal_id ??
+                            (payload.old as Record<string, unknown> | undefined)?.goal_id;
+                        if (eventGoalId && goalIdsRef.current.includes(eventGoalId as string)) {
+                            fetchGoals({ silent: true });
+                        }
+                    }
+                )
+                .subscribe();
+
+            if (cancelled) {
+                supabase.removeChannel(newChannel);
+                return;
+            }
+            channel = newChannel;
+        };
+
+        setupRealtime();
+
+        return () => {
+            cancelled = true;
+            if (channel) {
+                supabase.removeChannel(channel);
+                channel = null;
+            }
+        };
+    }, [user, groupId, fetchGoals, goalIdsKey]);
 
     // Create a new goal with enhanced options
     interface CreateGoalOptions {
@@ -163,8 +308,11 @@ export function useGoals(groupId: string) {
     }
 
     // Log a goal completion
-    async function logCompletion(goalId: string, proofPhotoUrl?: string, notes?: string) {
+    async function logCompletion(goalId: string, proofPhotoUrl?: string, notes?: string): Promise<CompletionResult> {
         if (!user) throw new Error('Not authenticated');
+
+        const previousGoal = goals.find(g => g.id === goalId);
+        const previousStreak = previousGoal?.current_streak || 0;
 
         const { data, error: insertError } = await supabase
             .from('goal_completions')
@@ -179,14 +327,28 @@ export function useGoals(groupId: string) {
 
         if (insertError) throw insertError;
 
-        await fetchGoals();
+        const freshGoals = await fetchGoals();
+        const updatedGoal = freshGoals?.find(g => g.id === goalId);
+        const newStreak = updatedGoal?.current_streak || 0;
 
         // Completing a goal is the one moment the user is reliably pleased with
         // the app, which is the only time worth spending a review prompt on.
         // Fire-and-forget: this must never delay or fail the completion.
         void promptForReviewAfterWin(goalId);
 
-        return data;
+        // Celebrate milestone streaks (7/30/100) exactly when the user's own
+        // completion crosses the threshold — the server logs the matching
+        // 'streak_achieved' activity event, so this is one-time per milestone.
+        const milestone = STREAK_MILESTONES.find(
+            (m) => newStreak >= m && previousStreak < m
+        );
+
+        return {
+            data,
+            milestone: milestone
+                ? { days: milestone, goalName: updatedGoal?.name || previousGoal?.name || 'your goal' }
+                : null,
+        };
     }
 
     /**
@@ -267,13 +429,19 @@ export function useGoals(groupId: string) {
             ? Math.min(goal.frequency_days, rawDaysRemaining)
             : rawDaysRemaining;
 
+        // Paused goals are exempt from auto-failure pressure: a pause with an
+        // elapsed end date is no longer a pause. Note: the server-side
+        // process_overdue_goals RPC does not yet honour is_paused, so a pause
+        // protects the UI state (no "overdue" warnings) — see the wave-1 report.
+        const isPaused = goal.is_paused && (!goal.paused_until || new Date(goal.paused_until) > now);
+
         return {
             goal_id: goal.id,
             user_id: user?.id || '',
             last_completion: lastCompletion?.completed_at || null,
             next_deadline: nextDeadline.toISOString(),
-            is_overdue: isOverdue,
-            days_remaining: daysRemaining,
+            is_overdue: isPaused ? false : isOverdue,
+            days_remaining: isPaused ? Math.max(1, daysRemaining) : daysRemaining,
             total_completions: userCompletions.length,
         };
     }
@@ -370,7 +538,7 @@ export function useGoals(groupId: string) {
                 }
             }
 
-            await fetchGoals();
+            await fetchGoals({ silent: true });
             return true;
         } catch {
             return false;
@@ -447,10 +615,16 @@ export function useGoals(groupId: string) {
         return goals.filter(g => g.is_paused);
     }
 
+    const clearAutoFailures = useCallback(() => {
+        setAutoFailures(null);
+    }, []);
+
     return {
         goals,
         loading,
         error,
+        autoFailures,
+        clearAutoFailures,
         createGoal,
         updateGoal,
         logCompletion,

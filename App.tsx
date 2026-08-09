@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
-import { View, ActivityIndicator, Platform } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { View, ActivityIndicator, Platform, Linking } from 'react-native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
@@ -32,6 +32,59 @@ import ActivityScreen from './src/screens/ActivityScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+/**
+ * App-wide navigation handle. Created at module level so non-component code
+ * (notification tap routing in useNotifications, deep-link handling) can
+ * navigate without a navigation prop. Passed to NavigationContainer below.
+ */
+export type RootStackParamList = {
+    MainTabs: undefined;
+    CreateGroup: { initialName?: string; initialDescription?: string; initialPenalty?: string } | undefined;
+    JoinGroup: { inviteCode?: string } | undefined;
+    GroupDetail: { groupId: string; showInviteModal?: boolean };
+    GroupChat: { groupId: string; groupName: string };
+    ChangePassword: undefined;
+    ResetPassword: undefined;
+    Login: undefined;
+    SignUp: undefined;
+    ForgotPassword: undefined;
+};
+
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
+// A join deep link that arrives before the navigation tree is ready (cold
+// start, or while the user is still on the auth flow) is parked here and
+// flushed on the first onReady.
+let pendingJoinCode: string | null = null;
+
+function handleJoinDeepLink(url: string | null) {
+    if (!url) return;
+    const match = url.match(/doitmate:\/\/join\?code=([A-Za-z0-9]+)/i);
+    if (!match) return;
+    const code = match[1];
+
+    if (navigationRef.isReady()) {
+        // JoinGroup only exists inside the signed-in navigator. If the auth
+        // flow is showing, park the code until the user signs in (the
+        // NavigationContainer remounts and flushes it via onReady).
+        const routeName = navigationRef.getCurrentRoute()?.name;
+        if (routeName === 'Login' || routeName === 'SignUp' || routeName === 'ForgotPassword' || routeName === 'ResetPassword') {
+            pendingJoinCode = code;
+        } else {
+            navigationRef.navigate('JoinGroup', { inviteCode: code });
+        }
+    } else {
+        pendingJoinCode = code;
+    }
+}
+
+function flushPendingDeepLink() {
+    if (pendingJoinCode && navigationRef.isReady()) {
+        navigationRef.navigate('JoinGroup', { inviteCode: pendingJoinCode });
+        pendingJoinCode = null;
+    }
+}
 
 function TabNavigator() {
   const insets = useSafeAreaInsets();
@@ -222,7 +275,11 @@ function NavigationWrapper() {
   }
 
   return (
-    <NavigationContainer key={passwordRecovery ? 'password-recovery' : user ? 'app' : 'auth'}>
+    <NavigationContainer
+      ref={navigationRef}
+      onReady={flushPendingDeepLink}
+      key={passwordRecovery ? 'password-recovery' : user ? 'app' : 'auth'}
+    >
       {user ? <AppNavigator /> : <AuthNavigator />}
     </NavigationContainer>
   );
@@ -237,6 +294,23 @@ export default function App() {
       // Set the button style to light (for dark backgrounds)
       NavigationBar.setButtonStyleAsync('light');
     }
+  }, []);
+
+  // Deep links: doitmate://join?code=XXXXXXXX — cold start + warm start.
+  useEffect(() => {
+    // Cold start: the OS hands the URL to us before JS finishes booting.
+    Linking.getInitialURL()
+      .then(handleJoinDeepLink)
+      .catch(() => {});
+
+    // Warm start: the app is already running.
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handleJoinDeepLink(url);
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   return (

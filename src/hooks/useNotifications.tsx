@@ -25,9 +25,11 @@ import React, {
     useState,
 } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
+import * as Notifications from 'expo-notifications';
 
 import { supabase } from '../services/supabase';
 import { useAuth } from './useAuth';
+import { navigationRef } from '../../App';
 import {
     DEFAULT_PREFS,
     GoalReminder,
@@ -223,6 +225,29 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         const subscription = AppState.addEventListener('change', handler);
         return () => subscription.remove();
     }, [user, refreshReminders]);
+
+    // ---- Tap a notification → jump into the group it came from ----
+    // Remote push notifications carry data.groupId (see send-push edge
+    // function / 012_push_notifications.sql); local reminders carry goalId
+    // but no groupId, so they are ignored here.
+    useEffect(() => {
+        const subscription = Notifications.addNotificationResponseReceivedListener(
+            (response) => {
+                const data = response.notification.request.content.data as
+                    | Record<string, unknown>
+                    | undefined;
+                const groupId = data?.groupId;
+
+                if (typeof groupId !== 'string' || !groupId) return;
+
+                if (navigationRef.isReady()) {
+                    navigationRef.navigate('GroupDetail', { groupId });
+                }
+            }
+        );
+
+        return () => subscription.remove();
+    }, []);
 
     // ---- Reschedule when goals or completions change anywhere ----
     useEffect(() => {

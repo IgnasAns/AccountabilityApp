@@ -118,14 +118,12 @@ END;
 $$;
 
 -- 5. Function to log negative occurrence (quick tap, optional penalty)
-CREATE OR REPLACE FUNCTION log_negative_occurrence(
-    p_goal_id UUID,
-    p_count INTEGER DEFAULT 1
-)
-RETURNS JSON
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+CREATE OR REPLACE FUNCTION public.log_negative_occurrence(p_goal_id uuid, p_count integer DEFAULT 1)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
     v_user_id UUID;
     v_goal RECORD;
@@ -134,35 +132,47 @@ DECLARE
     v_member_count INTEGER;
 BEGIN
     v_user_id := auth.uid();
-    
+
     IF v_user_id IS NULL THEN
         RETURN json_build_object('success', false, 'error', 'Not authenticated');
     END IF;
-    
+
+    IF p_count < 1 OR p_count > 50 THEN
+        RETURN json_build_object('success', false, 'error', 'Count must be between 1 and 50');
+    END IF;
+
     -- Get goal details
     SELECT * INTO v_goal FROM goals WHERE id = p_goal_id;
-    
+
     IF v_goal IS NULL THEN
         RETURN json_build_object('success', false, 'error', 'Goal not found');
     END IF;
-    
+
+    -- Membership guard: caller must belong to the goal's group
+    IF NOT EXISTS (
+        SELECT 1 FROM group_members
+        WHERE group_id = v_goal.group_id AND user_id = v_user_id
+    ) THEN
+        RETURN json_build_object('success', false, 'error', 'You are not a member of this goal''s group');
+    END IF;
+
     IF v_goal.goal_mode != 'negative' THEN
         RETURN json_build_object('success', false, 'error', 'This is not a negative tracking goal');
     END IF;
-    
+
     -- Log the occurrence
     INSERT INTO goal_completions (goal_id, user_id, occurrence_count)
     VALUES (p_goal_id, v_user_id, p_count);
-    
+
     -- Apply penalty if set
     v_penalty := v_goal.penalty_amount * p_count;
-    
+
     IF v_penalty > 0 THEN
         -- Get member count
         SELECT COUNT(*) INTO v_member_count
         FROM group_members
         WHERE group_id = v_goal.group_id AND user_id != v_user_id;
-        
+
         IF v_member_count > 0 THEN
             -- Create transactions
             FOR v_member IN
@@ -180,27 +190,32 @@ BEGIN
                     v_goal.emoji || ' ' || v_goal.name || ' x' || p_count,
                     'pending'
                 );
-                
+
                 -- Update balances
-                UPDATE group_members 
-                SET current_balance = current_balance - v_penalty,
-                    failure_count = failure_count + 1
+                UPDATE group_members
+                SET current_balance = current_balance - v_penalty
                 WHERE group_id = v_goal.group_id AND user_id = v_user_id;
-                
-                UPDATE group_members 
+
+                UPDATE group_members
                 SET current_balance = current_balance + v_penalty
                 WHERE group_id = v_goal.group_id AND user_id = v_member.user_id;
             END LOOP;
+
+            -- One failure per slip-up, not one per member
+            UPDATE group_members
+            SET failure_count = failure_count + 1
+            WHERE group_id = v_goal.group_id AND user_id = v_user_id;
         END IF;
     END IF;
-    
+
     RETURN json_build_object(
-        'success', true, 
+        'success', true,
         'count', p_count,
         'penalty_applied', v_penalty
     );
 END;
-$$;
+$function$;
+
 
 -- ============================================
 -- DONE! Enhanced goals system ready.
