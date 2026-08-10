@@ -38,9 +38,11 @@ SHORT = "Habit tracker for friends. Miss one, owe the group. Photo proof keeps i
 FULL = (REPO / "scripts" / "store_full_description.txt").read_text(encoding="utf-8").strip()
 
 # imageType -> list of files. Order is the order shown on the listing.
+SHOTS = PLAY / "v1.0.13-vc17-screenshots"
 IMAGES = {
     "icon": [NEW / "icon-512.png"],
     "featureGraphic": [NEW / "feature-graphic-1024x500.png"],
+    "phoneScreenshots": sorted((SHOTS).glob("*.png")),
     "sevenInchScreenshots": sorted((OLD / "tablet-7-screenshots").glob("*.png")),
     "tenInchScreenshots": sorted((OLD / "tablet-10-screenshots").glob("*.png")),
 }

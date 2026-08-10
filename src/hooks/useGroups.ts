@@ -76,8 +76,14 @@ export function useGroups() {
                 return { groupsData, balances, net };
             };
 
-            // Race against timeout
-            const result = await Promise.race([fetchData(), timeoutPromise]) as Awaited<ReturnType<typeof fetchData>>;
+            // Race against timeout; one quiet retry covers cold starts / slow
+            // first paint before we surface the error banner.
+            let result: Awaited<ReturnType<typeof fetchData>>;
+            try {
+                result = await Promise.race([fetchData(), timeoutPromise]) as Awaited<ReturnType<typeof fetchData>>;
+            } catch (firstErr) {
+                result = await Promise.race([fetchData(), timeoutPromise]) as Awaited<ReturnType<typeof fetchData>>;
+            }
 
             if (isMounted) {
                 setGroups(result.groupsData);
