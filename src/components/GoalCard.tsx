@@ -14,6 +14,7 @@ import { BlurView } from 'expo-blur';
 import { GoalWithCompletions, GoalStatus } from '../types/database';
 import { colors } from '../theme/colors';
 import { safeHaptics } from '../utils/haptics';
+import { toLocalDateString } from '../utils/dates';
 import { StyledAlert } from './StyledAlert';
 import AppIcon from './AppIcon';
 import StreakBadge from './StreakBadge';
@@ -55,9 +56,12 @@ export default function GoalCard({
 
     // Using centralized haptics utility from utils/haptics.ts
     const todayCount = useMemo(() => {
-        const today = new Date().toISOString().split('T')[0];
+        // M4: "today" must be the device's local date — the UTC date
+        // (toISOString().split('T')[0]) shifted a Mexico City user's
+        // evening completion onto the wrong day.
+        const today = toLocalDateString(new Date());
         return goal.completions
-            .filter(c => c.completed_at.split('T')[0] === today)
+            .filter(c => toLocalDateString(c.completed_at) === today)
             .reduce((sum, c) => sum + (c.occurrence_count || 1), 0);
     }, [goal.completions]);
 
@@ -208,11 +212,18 @@ export default function GoalCard({
             }
         } else {
             if (status.is_overdue) {
+                // days_remaining is ceil((deadline - now)/day), so a deadline
+                // that passed less than ~24h ago is 0, not 1 — the old text
+                // rendered the confusing "Overdue by 0 days". Say what it is:
+                // the deadline is today (or already gone).
+                const overdueDays = Math.abs(status.days_remaining);
                 return {
                     color: colors.error,
                     bgColor: 'rgba(239, 68, 68, 0.1)',
                     borderColor: 'rgba(239, 68, 68, 0.3)',
-                    text: `Overdue by ${Math.abs(status.days_remaining)} day${Math.abs(status.days_remaining) !== 1 ? 's' : ''}`,
+                    text: overdueDays <= 0
+                        ? 'Overdue today'
+                        : `Overdue by ${overdueDays} day${overdueDays !== 1 ? 's' : ''}`,
                     urgent: true,
                 };
             } else if (status.days_remaining <= 1) {
@@ -263,7 +274,9 @@ export default function GoalCard({
         }
     };
 
-    const today = new Date().toISOString().split('T')[0];
+    // M4: local "today" for the pause-picker minDate — the UTC date made the
+    // minDate land on tomorrow for negative-offset timezones.
+    const today = toLocalDateString(new Date());
 
     return (
         <Pressable

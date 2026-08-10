@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, Platform, Linking } from 'react-native';
-import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
@@ -10,6 +10,7 @@ import * as NavigationBar from 'expo-navigation-bar';
 
 import { AuthProvider, useAuth } from './src/hooks/useAuth';
 import { NotificationProvider } from './src/hooks/useNotifications';
+import { navigationRef } from './src/services/navigationRef';
 import { AlertProvider } from './src/components/StyledAlert';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import AppIcon from './src/components/AppIcon';
@@ -33,25 +34,12 @@ import ActivityScreen from './src/screens/ActivityScreen';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-/**
- * App-wide navigation handle. Created at module level so non-component code
- * (notification tap routing in useNotifications, deep-link handling) can
- * navigate without a navigation prop. Passed to NavigationContainer below.
- */
-export type RootStackParamList = {
-    MainTabs: undefined;
-    CreateGroup: { initialName?: string; initialDescription?: string; initialPenalty?: string } | undefined;
-    JoinGroup: { inviteCode?: string } | undefined;
-    GroupDetail: { groupId: string; showInviteModal?: boolean };
-    GroupChat: { groupId: string; groupName: string };
-    ChangePassword: undefined;
-    ResetPassword: undefined;
-    Login: undefined;
-    SignUp: undefined;
-    ForgotPassword: undefined;
-};
-
-export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+// Re-exported so consumers that historically imported these from App.tsx
+// (e.g. notification tap routing) keep working — the definitions now live in
+// src/services/navigationRef.ts to break the App -> useNotifications -> App
+// require cycle.
+export { navigationRef } from './src/services/navigationRef';
+export type { RootStackParamList } from './src/services/navigationRef';
 
 // A join deep link that arrives before the navigation tree is ready (cold
 // start, or while the user is still on the auth flow) is parked here and

@@ -20,7 +20,13 @@ ALTER TABLE goal_completions
 ADD COLUMN IF NOT EXISTS occurrence_count INTEGER DEFAULT 1;
 
 -- 3. Function to get weekly stats for a goal (last 7 days by member)
-CREATE OR REPLACE FUNCTION get_goal_weekly_stats(p_goal_id UUID)
+--    p_tz_offset_minutes: the CALLER's UTC offset in minutes (e.g. -360 for
+--    Mexico City), so completions bucket on the client's local calendar day
+--    instead of the DB's UTC date (M4). Defaults to UTC for old callers.
+CREATE OR REPLACE FUNCTION get_goal_weekly_stats(
+    p_goal_id UUID,
+    p_tz_offset_minutes INTEGER DEFAULT 0
+)
 RETURNS TABLE (
     user_id UUID,
     user_name TEXT,
@@ -30,26 +36,50 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
+DECLARE
+    v_today_local DATE;
+    v_group_id UUID;
 BEGIN
+    -- M5: SECURITY DEFINER must not let non-members read another group's
+    -- goal stats — check the caller is a member of the goal's group.
+    SELECT g.group_id INTO v_group_id FROM goals g WHERE g.id = p_goal_id;
+    IF v_group_id IS NULL THEN
+        RETURN;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM group_members gm
+        WHERE gm.group_id = v_group_id AND gm.user_id = auth.uid()
+    ) THEN
+        RETURN;
+    END IF;
+
+    -- M4: "today" in the caller's local timezone.
+    v_today_local := (now() AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes))::DATE;
+
     RETURN QUERY
     SELECT 
         gc.user_id,
         p.name as user_name,
-        gc.completed_at::DATE as day_date,
+        (gc.completed_at AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes))::DATE as day_date,
         COALESCE(SUM(gc.occurrence_count)::INTEGER, 0) as completion_count,
         BOOL_OR(gc.proof_photo_url IS NOT NULL) as has_photo
     FROM goal_completions gc
     JOIN profiles p ON p.id = gc.user_id
     WHERE gc.goal_id = p_goal_id
-    AND gc.completed_at >= CURRENT_DATE - INTERVAL '7 days'
-    GROUP BY gc.user_id, p.name, gc.completed_at::DATE
-    ORDER BY gc.completed_at::DATE;
+    AND (gc.completed_at AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes))::DATE >= v_today_local - INTERVAL '6 days'
+    GROUP BY gc.user_id, p.name, (gc.completed_at AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes))::DATE
+    ORDER BY (gc.completed_at AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes))::DATE;
 END;
 $$;
 
 -- 4. Function to calculate performance percentage for a positive goal (current week Mon-Sun)
-CREATE OR REPLACE FUNCTION get_goal_performance(p_goal_id UUID)
+--    p_tz_offset_minutes shifts the week boundary to the caller's local timezone (M4).
+CREATE OR REPLACE FUNCTION get_goal_performance(
+    p_goal_id UUID,
+    p_tz_offset_minutes INTEGER DEFAULT 0
+)
 RETURNS TABLE (
     user_id UUID,
     user_name TEXT,
@@ -60,6 +90,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_goal RECORD;
@@ -71,9 +102,20 @@ BEGIN
     IF v_goal IS NULL THEN
         RETURN;
     END IF;
+
+    -- M5: SECURITY DEFINER must not leak other groups' stats to non-members.
+    IF NOT EXISTS (
+        SELECT 1 FROM group_members gm
+        WHERE gm.group_id = v_goal.group_id AND gm.user_id = auth.uid()
+    ) THEN
+        RETURN;
+    END IF;
     
-    -- Calculate start of current week (Monday)
-    v_week_start := date_trunc('week', CURRENT_DATE)::DATE;
+    -- M4: start of the caller's local week (Monday), not the DB's UTC Monday.
+    v_week_start := date_trunc(
+        'week',
+        now() AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes)
+    )::DATE;
     
     -- Calculate target based on goal type
     -- If target_per_week is set, use it; otherwise calculate from frequency_days
@@ -87,7 +129,7 @@ BEGIN
             FROM goal_completions gc
             WHERE gc.goal_id = p_goal_id
             AND gc.user_id = gm.user_id
-            AND gc.completed_at::DATE >= v_week_start
+            AND (gc.completed_at AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes))::DATE >= v_week_start
         ), 0) as completions_this_week,
         COALESCE(v_goal.target_per_week, GREATEST(7 / v_goal.frequency_days, 1))::INTEGER as target_completions,
         CASE 
@@ -98,7 +140,7 @@ BEGIN
                     FROM goal_completions gc
                     WHERE gc.goal_id = p_goal_id
                     AND gc.user_id = gm.user_id
-                    AND gc.completed_at::DATE >= v_week_start
+                    AND (gc.completed_at AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes))::DATE >= v_week_start
                 ), 0)::NUMERIC / 
                 COALESCE(v_goal.target_per_week, GREATEST(7 / v_goal.frequency_days, 1))::NUMERIC * 100
             , 0))
@@ -108,7 +150,7 @@ BEGIN
             FROM goal_completions gc
             WHERE gc.goal_id = p_goal_id
             AND gc.user_id = gm.user_id
-            AND gc.completed_at::DATE >= v_week_start
+            AND (gc.completed_at AT TIME ZONE 'UTC' + make_interval(mins => p_tz_offset_minutes))::DATE >= v_week_start
         ), 0) >= COALESCE(v_goal.target_per_week, GREATEST(7 / v_goal.frequency_days, 1)) as is_on_track
     FROM group_members gm
     JOIN profiles p ON p.id = gm.user_id

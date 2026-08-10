@@ -26,10 +26,12 @@ import React, {
 } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { supabase } from '../services/supabase';
+import { navigationRef } from '../services/navigationRef';
 import { useAuth } from './useAuth';
-import { navigationRef } from '../../App';
+import { StyledAlert } from '../components/StyledAlert';
 import {
     DEFAULT_PREFS,
     GoalReminder,
@@ -195,6 +197,20 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         let cancelled = false;
 
         (async () => {
+            // First sign-in on this install: explain WHY the app wants
+            // notification permission before the OS prompt fires. If the user
+            // declines the explainer, skip the system prompt entirely — the
+            // permission can still be granted later from notification settings.
+            if (await shouldShowExplainer()) {
+                await markExplainerShown();
+                const optedIn = await promptExplainer();
+                if (!optedIn) {
+                    if (!cancelled) setPermissionGranted(false);
+                    return;
+                }
+            }
+
+            if (cancelled) return;
             const granted = await ensurePermissions();
             if (cancelled) return;
             setPermissionGranted(granted);
@@ -295,6 +311,46 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 }
 
 export const useNotifications = () => useContext(NotificationContext);
+
+// ---- First-run permission explainer (UX audit #8) ----
+//
+// The OS permission prompt is the wrong first touch: a user who has just
+// signed in and has no idea the app will text them is likely to tap "don't
+// allow" forever. Show a one-line explainer (via the app's own StyledAlert,
+// which never triggers the OS dialog) BEFORE the system prompt fires, and
+// only fire the system prompt if the user opts in. Shown once per install.
+
+const EXPLAINER_KEY = '@doitmate/notif_explainer_shown';
+
+async function shouldShowExplainer(): Promise<boolean> {
+    try {
+        return (await AsyncStorage.getItem(EXPLAINER_KEY)) !== 'true';
+    } catch {
+        return true;
+    }
+}
+
+async function markExplainerShown(): Promise<void> {
+    try {
+        await AsyncStorage.setItem(EXPLAINER_KEY, 'true');
+    } catch {
+        // Non-fatal: worst case the explainer shows again next launch.
+    }
+}
+
+/** Resolves true when the user opts in, false when they decline. */
+function promptExplainer(): Promise<boolean> {
+    return new Promise((resolve) => {
+        StyledAlert.alert(
+            'Enable reminders?',
+            "We'll nudge you before a deadline so you don't get fined in your sleep — enable notifications?",
+            [
+                { text: 'Enable', onPress: () => resolve(true) },
+                { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
+            ]
+        );
+    });
+}
 
 function isPaused(row: ReminderRow): boolean {
     if (!row.is_paused) return false;

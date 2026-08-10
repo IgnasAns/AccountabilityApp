@@ -1,9 +1,14 @@
-import React from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useCallback } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../theme/colors';
 import AppIcon, { AppIconName } from '../components/AppIcon';
+import PublicChallengeCard from '../components/challenges/PublicChallengeCard';
+import { usePublicChallenges, PublicChallenge } from '../hooks/usePublicChallenges';
+import { safeHaptics } from '../utils/haptics';
+import { StyledAlert } from '../components/StyledAlert';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -56,6 +61,22 @@ const CHALLENGE_TEMPLATES = [
 
 export default function ExploreScreen({ navigation }: Props) {
     const insets = useSafeAreaInsets();
+    const {
+        challenges,
+        loading: challengesLoading,
+        error: challengesError,
+        joiningSlug,
+        joinChallenge,
+        refetch: refetchChallenges,
+    } = usePublicChallenges();
+
+    // Keep the join state fresh when the tab regains focus (e.g. coming back
+    // from a challenge group the user just joined).
+    useFocusEffect(
+        useCallback(() => {
+            refetchChallenges({ silent: true });
+        }, [refetchChallenges])
+    );
 
     const handleTemplatePress = (template: typeof CHALLENGE_TEMPLATES[0]) => {
         navigation.navigate('CreateGroup', {
@@ -65,14 +86,82 @@ export default function ExploreScreen({ navigation }: Props) {
         });
     };
 
+    const handleJoinChallenge = async (challenge: PublicChallenge) => {
+        try {
+            const result = await joinChallenge(challenge.slug);
+            safeHaptics('success');
+
+            // Land the user in the shared challenge group and surface the
+            // invite/share moment once — same route-param mechanism the
+            // group-creation flow uses.
+            navigation.navigate('GroupDetail', {
+                groupId: result.groupId,
+                showInviteModal: true,
+            });
+        } catch (error: unknown) {
+            safeHaptics('error');
+            StyledAlert.alert(
+                'Error',
+                error instanceof Error ? error.message : 'Failed to join challenge'
+            );
+        }
+    };
+
+    const handleOpenChallenge = (challenge: PublicChallenge) => {
+        if (!challenge.group_id) return;
+        safeHaptics('light');
+        navigation.navigate('GroupDetail', { groupId: challenge.group_id });
+    };
+
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Explore Challenges</Text>
-                <Text style={styles.headerSubtitle}>Pick a template to start instantly</Text>
+                <Text style={styles.headerSubtitle}>Join a shared challenge or start your own</Text>
             </View>
 
             <ScrollView contentContainerStyle={styles.content}>
+                {/* Public Challenges — one-tap shared groups, no invites needed */}
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>🔥 Public Challenges</Text>
+                    <Text style={styles.sectionSubtitle}>
+                        Join a challenge and instantly get a group, streaks and penalties — no invites needed
+                    </Text>
+                </View>
+
+                {challengesLoading && challenges.length === 0 ? (
+                    <View style={styles.loadingRow}>
+                        <ActivityIndicator size="small" color={colors.primary} />
+                        <Text style={styles.loadingText}>Loading challenges…</Text>
+                    </View>
+                ) : challengesError && challenges.length === 0 ? (
+                    <TouchableOpacity
+                        style={styles.loadingRow}
+                        onPress={() => refetchChallenges()}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.errorText}>Couldn't load challenges. Tap to retry.</Text>
+                    </TouchableOpacity>
+                ) : (
+                    challenges.map((challenge) => (
+                        <PublicChallengeCard
+                            key={challenge.slug}
+                            challenge={challenge}
+                            joining={joiningSlug === challenge.slug}
+                            onJoin={() => handleJoinChallenge(challenge)}
+                            onOpen={() => handleOpenChallenge(challenge)}
+                        />
+                    ))
+                )}
+
+                {/* Start-your-own templates */}
+                <View style={[styles.sectionHeader, styles.templatesSectionHeader]}>
+                    <Text style={styles.sectionTitle}>💪 Start Your Own</Text>
+                    <Text style={styles.sectionSubtitle}>
+                        Pick a template and invite your friends
+                    </Text>
+                </View>
+
                 <View style={styles.grid}>
                     {CHALLENGE_TEMPLATES.map((template) => (
                         <TouchableOpacity
@@ -129,6 +218,45 @@ const styles = StyleSheet.create({
     },
     content: {
         padding: 16,
+    },
+    sectionHeader: {
+        marginBottom: 12,
+    },
+    templatesSectionHeader: {
+        marginTop: 16,
+    },
+    sectionTitle: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: colors.text,
+        marginBottom: 4,
+    },
+    sectionSubtitle: {
+        fontSize: 13,
+        color: colors.textMuted,
+        lineHeight: 18,
+        marginBottom: 4,
+    },
+    loadingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        paddingVertical: 24,
+        backgroundColor: colors.surface,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.border,
+        marginBottom: 12,
+    },
+    loadingText: {
+        color: colors.textMuted,
+        fontSize: 14,
+    },
+    errorText: {
+        color: colors.textMuted,
+        fontSize: 13,
+        textAlign: 'center',
     },
     grid: {
         flexDirection: 'row',

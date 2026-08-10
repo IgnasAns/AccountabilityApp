@@ -5,6 +5,7 @@ import { RealtimeChannel } from '@supabase/supabase-js';
 import { Goal, GoalCompletion, GoalWithCompletions, GoalStatus, GoalCategory, Profile } from '../types/database';
 import { DEFAULT_PAGE_SIZE } from '../constants';
 import { sanitizeName, sanitizeText, sanitizeNumber } from '../utils/sanitize';
+import { toLocalDateString } from '../utils/dates';
 import { maybeRequestReview } from '../services/reviewPrompt';
 
 // Streak milestones worth celebrating. Mirrors the server's streak_achieved
@@ -448,10 +449,13 @@ export function useGoals(groupId: string) {
 
     // Get completions for a specific date
     function getCompletionsForDate(date: Date): GoalCompletion[] {
-        const dateStr = date.toISOString().split('T')[0];
+        // M4: bucket by the DEVICE's local date, not the UTC date the old
+        // toISOString().split('T')[0] produced (a Mexico City user's 7pm
+        // completion used to land on "yesterday").
+        const dateStr = toLocalDateString(date);
         return goals.flatMap(g =>
             g.completions.filter(c =>
-                c.completed_at.split('T')[0] === dateStr
+                toLocalDateString(c.completed_at) === dateStr
             )
         );
     }
@@ -495,10 +499,11 @@ export function useGoals(groupId: string) {
         for (let i = 6; i >= 0; i--) {
             const date = new Date(today);
             date.setDate(date.getDate() - i);
-            const dateStr = date.toISOString().split('T')[0];
+            // M4: local date (device timezone), matching the calendar marks.
+            const dateStr = toLocalDateString(date);
 
             const dayCompletions = goal.completions
-                .filter(c => c.user_id === user?.id && c.completed_at.split('T')[0] === dateStr);
+                .filter(c => c.user_id === user?.id && toLocalDateString(c.completed_at) === dateStr);
 
             const count = dayCompletions.reduce((sum, c) => sum + (c.occurrence_count || 1), 0);
             result.push({ date: dateStr, count });

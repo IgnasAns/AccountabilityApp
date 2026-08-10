@@ -2,20 +2,27 @@ import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../theme/colors';
-import AppIcon, { AppIconName } from '../AppIcon';
+import AppIcon from '../AppIcon';
 
 export type TabOption = 'dashboard' | 'leaderboard' | 'activity' | 'balances' | 'settings';
 
-export const TABS: { key: TabOption; label: string; icon: AppIconName }[] = [
-    { key: 'dashboard', label: 'Dashboard', icon: 'view-dashboard-outline' },
-    { key: 'leaderboard', label: 'Leaderboard', icon: 'trophy-outline' },
-    { key: 'activity', label: 'Activity', icon: 'clipboard-text-outline' },
-    { key: 'balances', label: 'Balances', icon: 'wallet-outline' },
-    { key: 'settings', label: 'Settings', icon: 'cog-outline' },
+/**
+ * The group-level tabs. Note 'activity' is LABELED "Feed" — the bottom tab
+ * bar already has an "Activity" tab (the money ledger), so two "Activity"
+ * tabs in one screen were a duplicate (UX audit #11).
+ */
+export const TABS: { key: TabOption; label: string }[] = [
+    { key: 'dashboard', label: 'Dashboard' },
+    { key: 'leaderboard', label: 'Leaderboard' },
+    { key: 'activity', label: 'Feed' },
+    { key: 'balances', label: 'Balances' },
+    { key: 'settings', label: 'Settings' },
 ];
 
 interface GroupDetailHeaderProps {
     groupName: string;
+    /** Set when this group is a public challenge the user joined — renders a small tag. */
+    challengeTag?: { slug: string; name: string; emoji: string } | null;
     activeTab: TabOption;
     onBack: () => void;
     onTabChange: (tab: TabOption) => void;
@@ -25,6 +32,7 @@ interface GroupDetailHeaderProps {
 
 export default function GroupDetailHeader({
     groupName,
+    challengeTag,
     activeTab,
     onBack,
     onTabChange,
@@ -42,6 +50,13 @@ export default function GroupDetailHeader({
                 </TouchableOpacity>
                 <View style={styles.headerTitleContainer}>
                     <Text style={styles.headerTitle} numberOfLines={1}>{groupName}</Text>
+                    {challengeTag && (
+                        <View style={styles.challengeTag}>
+                            <Text style={styles.challengeTagText} numberOfLines={1}>
+                                {challengeTag.emoji} Public challenge · {challengeTag.name}
+                            </Text>
+                        </View>
+                    )}
                 </View>
                 <View style={styles.headerActions}>
                     <TouchableOpacity onPress={onOpenChat} style={styles.headerButton} accessibilityLabel="Open group chat">
@@ -53,7 +68,9 @@ export default function GroupDetailHeader({
                 </View>
             </View>
 
-            {/* Tabs */}
+            {/* Tabs — compact labels so all five fit on screen. The strip is
+                still scrollable for narrow devices; the last tab deliberately
+                peeks past the right edge as the scroll affordance. */}
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -65,12 +82,10 @@ export default function GroupDetailHeader({
                         key={tab.key}
                         style={[styles.tab, activeTab === tab.key && styles.activeTab]}
                         onPress={() => onTabChange(tab.key)}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: activeTab === tab.key }}
+                        accessibilityLabel={tab.label}
                     >
-                        <AppIcon
-                            name={tab.icon}
-                            size={16}
-                            color={activeTab === tab.key ? '#fff' : colors.textMuted}
-                        />
                         <Text style={[
                             styles.tabText,
                             activeTab === tab.key && styles.activeTabText,
@@ -109,6 +124,21 @@ const styles = StyleSheet.create({
         fontWeight: '800',
         color: colors.text,
     },
+    challengeTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 3,
+        backgroundColor: colors.primaryMuted,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 8,
+        maxWidth: '100%',
+    },
+    challengeTagText: {
+        color: colors.primary,
+        fontSize: 10,
+        fontWeight: '700',
+    },
     headerActions: {
         flexDirection: 'row',
         gap: 8,
@@ -126,28 +156,30 @@ const styles = StyleSheet.create({
     },
     tabsContainer: {
         flexDirection: 'row',
-        paddingHorizontal: 16,
+        // Right padding lets the last tab peek past the edge on narrow
+        // screens — the peek is the "there's more" affordance.
+        paddingHorizontal: 12,
+        paddingRight: 20,
         paddingBottom: 12,
-        gap: 8,
+        gap: 6,
     },
     tab: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 14,
-        paddingVertical: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
         borderRadius: 8,
         backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
-        gap: 6,
     },
     activeTab: {
         backgroundColor: colors.primary,
         borderColor: colors.primary,
     },
     tabText: {
-        fontSize: 13,
-        fontWeight: '600',
+        fontSize: 11.5,
+        fontWeight: '700',
         color: colors.textMuted,
     },
     activeTabText: {

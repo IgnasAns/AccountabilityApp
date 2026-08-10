@@ -19,6 +19,7 @@ import { StyledAlert } from '../components/StyledAlert';
 import ConfirmModal from '../components/ConfirmModal';
 import { pickImage, uploadAvatar } from '../services/photoService';
 import { sanitizeName, sanitizeUrl } from '../utils/sanitize';
+import { isAllowedImageUri } from '../utils/media';
 import { safeHaptics } from '../utils/haptics';
 import AppIcon from '../components/AppIcon';
 import NotificationSettings from '../components/NotificationSettings';
@@ -106,6 +107,15 @@ export default function ProfileScreen({ navigation }: Props) {
         try {
             const uri = await pickImage();
             if (uri) {
+                // M9: the avatar upload path must only ever see images.
+                if (!isAllowedImageUri(uri)) {
+                    safeHaptics('warning');
+                    StyledAlert.alert(
+                        'Unsupported file',
+                        'Please choose a photo — JPEG, PNG, WebP or HEIC.'
+                    );
+                    return;
+                }
                 setLoading(true);
                 safeHaptics('light');
                 const publicUrl = await uploadAvatar(uri);

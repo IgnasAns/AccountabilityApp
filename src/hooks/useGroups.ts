@@ -17,9 +17,14 @@ export function useGroups() {
 
         let isMounted = true;
 
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('REQUEST TIMED OUT')), REQUEST_TIMEOUT_MS)
-        );
+        // L4: the timeout timer must be cleared once the race resolves —
+        // leaving it running would keep the callback alive for the full 30s
+        // on every fetch (a leak that also fires a pointless rejection after
+        // a successful load).
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('REQUEST TIMED OUT')), REQUEST_TIMEOUT_MS);
+        });
 
         try {
             setLoading(true);
@@ -103,6 +108,7 @@ export function useGroups() {
                 }
             }
         } finally {
+            if (timeoutId) clearTimeout(timeoutId);
             if (isMounted) {
                 setLoading(false);
             }

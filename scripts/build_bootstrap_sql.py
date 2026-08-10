@@ -41,6 +41,8 @@ ORDER = [
     "migrations/013_secure_goal_templates.sql",
     "migrations/014_account_deletion.sql",
     "migrations/015_security_hardening.sql",
+    "migrations/016_fixes_audit_qa.sql",
+    "migrations/017_public_challenges.sql",
 ]
 
 HEADER = f"""-- ============================================================================

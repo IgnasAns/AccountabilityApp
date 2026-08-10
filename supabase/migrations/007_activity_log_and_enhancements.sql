@@ -215,9 +215,15 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to update streak on completion
+-- p_completion_id lets the trigger exclude the row that fired it, so
+-- same-day duplicates (1-tap complete + photo-proof path both insert) do not
+-- each advance the streak — they used to add one phantom day per extra
+-- completion, inflating current AND longest streaks (live-confirmed: a goal
+-- with a real 5-day streak showed 'Best streak: 8').
 CREATE OR REPLACE FUNCTION update_goal_streak(
     p_goal_id UUID,
-    p_user_id UUID
+    p_user_id UUID,
+    p_completion_id UUID DEFAULT NULL
 ) RETURNS JSONB AS $$
 DECLARE
     v_goal RECORD;
@@ -225,6 +231,7 @@ DECLARE
     v_streak_continued BOOLEAN;
     v_new_streak INTEGER;
     v_result JSONB;
+    v_already_today BOOLEAN;
 BEGIN
     -- Get goal details
     SELECT * INTO v_goal FROM goals WHERE id = p_goal_id;
@@ -232,29 +239,44 @@ BEGIN
     IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', 'Goal not found');
     END IF;
-    
-    -- Get last completion before today
-    SELECT completed_at INTO v_last_completion
-    FROM goal_completions
-    WHERE goal_id = p_goal_id 
-      AND user_id = p_user_id
-      AND completed_at < CURRENT_DATE
-    ORDER BY completed_at DESC
-    LIMIT 1;
-    
-    -- Determine if streak continues
-    IF v_last_completion IS NULL THEN
-        -- First completion ever
-        v_new_streak := 1;
-        v_streak_continued := false;
-    ELSIF (CURRENT_DATE - v_last_completion::DATE) <= v_goal.frequency_days THEN
-        -- Streak continues
-        v_new_streak := COALESCE(v_goal.current_streak, 0) + 1;
+
+    -- Only the FIRST completion of a calendar day may advance the streak.
+    SELECT EXISTS (
+        SELECT 1 FROM goal_completions
+        WHERE goal_id = p_goal_id
+          AND user_id = p_user_id
+          AND completed_at >= CURRENT_DATE
+          AND (p_completion_id IS NULL OR id != p_completion_id)
+    ) INTO v_already_today;
+
+    IF v_already_today THEN
+        -- Same-day duplicate: streak stays where it is.
+        v_new_streak := GREATEST(COALESCE(v_goal.current_streak, 0), 1);
         v_streak_continued := true;
     ELSE
-        -- Streak broken, starting fresh
-        v_new_streak := 1;
-        v_streak_continued := false;
+        -- Get last completion before today
+        SELECT completed_at INTO v_last_completion
+        FROM goal_completions
+        WHERE goal_id = p_goal_id 
+          AND user_id = p_user_id
+          AND completed_at < CURRENT_DATE
+        ORDER BY completed_at DESC
+        LIMIT 1;
+        
+        -- Determine if streak continues
+        IF v_last_completion IS NULL THEN
+            -- First completion ever
+            v_new_streak := 1;
+            v_streak_continued := false;
+        ELSIF (CURRENT_DATE - v_last_completion::DATE) <= v_goal.frequency_days THEN
+            -- Streak continues
+            v_new_streak := COALESCE(v_goal.current_streak, 0) + 1;
+            v_streak_continued := true;
+        ELSE
+            -- Streak broken, starting fresh
+            v_new_streak := 1;
+            v_streak_continued := false;
+        END IF;
     END IF;
     
     -- Update goal with new streak
@@ -392,8 +414,9 @@ BEGIN
         )
     );
     
-    -- Update streak
-    PERFORM update_goal_streak(NEW.goal_id, NEW.user_id);
+    -- Update streak (pass the new row's id so same-day duplicate
+    -- completions don't each advance the streak)
+    PERFORM update_goal_streak(NEW.goal_id, NEW.user_id, NEW.id);
     
     RETURN NEW;
 END;

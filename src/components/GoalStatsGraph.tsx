@@ -6,6 +6,7 @@ import {
     Dimensions,
 } from 'react-native';
 import { colors } from '../theme/colors';
+import { toLocalDateString } from '../utils/dates';
 
 interface DataPoint {
     user_id: string;
@@ -40,14 +41,15 @@ const MEMBER_COLORS = [
 ];
 
 export default function GoalStatsGraph({ allMembersData, goalMode, label }: Props) {
-    // Get last 7 days
+    // Get last 7 days — M4: local calendar dates so the axis matches the
+    // day_date keys in allMembersData (both are device-local now).
     const getLast7Days = (): string[] => {
         const days: string[] = [];
         const today = new Date();
         for (let i = 6; i >= 0; i--) {
             const date = new Date(today);
             date.setDate(date.getDate() - i);
-            days.push(date.toISOString().split('T')[0]);
+            days.push(toLocalDateString(date));
         }
         return days;
     };
@@ -97,6 +99,10 @@ export default function GoalStatsGraph({ allMembersData, goalMode, label }: Prop
         1,
         ...memberLines.flatMap((ml) => ml.data.map((d) => d.count))
     );
+
+    // Y-axis ticks: top / middle / bottom. Dedupe so a max of 1 renders
+    // "1 / 0" instead of the confusing "1 / 0 / 0" (Math.floor(1/2) === 0).
+    const yTicks = [...new Set([maxValue, Math.ceil(maxValue / 2), 0])];
 
     const graphHeight = 100;
     const graphPadding = 10; // Padding to prevent overflow
@@ -175,9 +181,9 @@ export default function GoalStatsGraph({ allMembersData, goalMode, label }: Prop
             {/* Y-axis labels */}
             <View style={styles.graphContainer}>
                 <View style={styles.yAxis}>
-                    <Text style={styles.yLabel}>{maxValue}</Text>
-                    <Text style={styles.yLabel}>{Math.floor(maxValue / 2)}</Text>
-                    <Text style={styles.yLabel}>0</Text>
+                    {yTicks.map((tick) => (
+                        <Text key={tick} style={styles.yLabel}>{tick}</Text>
+                    ))}
                 </View>
 
                 {/* Graph area */}

@@ -14,6 +14,7 @@ import { Calendar, DateData } from 'react-native-calendars';
 import { BlurView } from 'expo-blur';
 import { GoalWithCompletions, GoalCompletion, Profile } from '../types/database';
 import { colors } from '../theme/colors';
+import { toLocalDateString } from '../utils/dates';
 import GoalStatsGraph from './GoalStatsGraph';
 import StreakBadge from './StreakBadge';
 
@@ -116,10 +117,12 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
 
         const marks: { [key: string]: { marked?: boolean; dotColor?: string; selected?: boolean; selectedColor?: string; customStyles?: { container: { backgroundColor: string } } } } = {};
 
-        // Group completions by date and count
+        // Group completions by date and count. M4: dates are the DEVICE's
+        // local calendar day — the old completed_at.split('T')[0] bucketed by
+        // UTC, so evening completions (Mexico City etc.) marked the wrong day.
         const dateCounts = new Map<string, number>();
         goal.completions.forEach((completion) => {
-            const dateStr = completion.completed_at.split('T')[0];
+            const dateStr = toLocalDateString(completion.completed_at);
             const count = completion.occurrence_count || 1;
             dateCounts.set(dateStr, (dateCounts.get(dateStr) || 0) + count);
         });
@@ -161,7 +164,7 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
     const getDateCount = (dateStr: string): number => {
         if (!goal) return 0;
         return goal.completions
-            .filter((c) => c.completed_at.split('T')[0] === dateStr)
+            .filter((c) => toLocalDateString(c.completed_at) === dateStr)
             .reduce((sum, c) => sum + (c.occurrence_count || 1), 0);
     };
 
@@ -169,7 +172,7 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
     const selectedCompletions = useMemo(() => {
         if (!goal || !selectedDate) return [];
         return goal.completions.filter(
-            (c) => c.completed_at.split('T')[0] === selectedDate
+            (c) => toLocalDateString(c.completed_at) === selectedDate
         );
     }, [goal, selectedDate]);
 
@@ -184,7 +187,9 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
         return goal.completions.map((c) => ({
             user_id: c.user_id,
             user_name: groupMembers.find((m) => m.id === c.user_id)?.name || 'Unknown',
-            day_date: c.completed_at.split('T')[0],
+            // M4: local calendar day so the graph's 7-day axis lines up with
+            // what the user sees on the calendar tab.
+            day_date: toLocalDateString(c.completed_at),
             count: c.occurrence_count || 1,
         }));
     }, [goal, groupMembers]);
@@ -308,7 +313,7 @@ export default function GoalCalendarModal({ visible, onClose, goal, groupMembers
                                         const dateStr = date?.dateString || '';
                                         const count = getDateCount(dateStr);
                                         const isSelected = selectedDate === dateStr;
-                                        const isToday = dateStr === new Date().toISOString().split('T')[0];
+                                        const isToday = dateStr === toLocalDateString(new Date());
 
                                         return (
                                             <TouchableOpacity

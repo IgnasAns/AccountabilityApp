@@ -14,6 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import { colors } from '../theme/colors';
 import { takePhoto, pickImage } from '../services/photoService';
+import { isAllowedImageUri } from '../utils/media';
 import { StyledAlert } from './StyledAlert';
 
 interface PhotoProofPickerProps {
@@ -43,14 +44,33 @@ export default function PhotoProofPicker({
         }
     };
 
+    /**
+     * M9: gate every picked/taken file on the image type allowlist
+     * (jpeg/png/webp/heic) before it reaches the upload path. The picker's
+     * `mediaTypes: Images` narrows the dialog, but any other URI source would
+     * otherwise flow straight into Supabase Storage.
+     */
+    const acceptUri = (uri: string | null): void => {
+        if (!uri) return;
+        if (!isAllowedImageUri(uri)) {
+            safeHaptics();
+            StyledAlert.alert(
+                'Unsupported file',
+                'Please choose a photo — JPEG, PNG, WebP or HEIC.'
+            );
+            return;
+        }
+        safeHaptics();
+        onPhotoSelected(uri);
+    };
+
     const handleTakePhoto = async () => {
         setShowOptions(false);
         setLoading(true);
         try {
             const uri = await takePhoto();
             if (uri) {
-                safeHaptics();
-                onPhotoSelected(uri);
+                acceptUri(uri);
             }
         } catch {
             // Camera permission denied (or camera unavailable): tell the user
@@ -63,8 +83,7 @@ export default function PhotoProofPicker({
             try {
                 const uri = await pickImage();
                 if (uri) {
-                    safeHaptics();
-                    onPhotoSelected(uri);
+                    acceptUri(uri);
                 }
             } catch {
                 // Library permission denied too — the alert above already
@@ -81,8 +100,7 @@ export default function PhotoProofPicker({
         try {
             const uri = await pickImage();
             if (uri) {
-                safeHaptics();
-                onPhotoSelected(uri);
+                acceptUri(uri);
             }
         } catch {
             StyledAlert.alert(

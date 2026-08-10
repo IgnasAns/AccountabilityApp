@@ -16,8 +16,10 @@ import * as Clipboard from 'expo-clipboard';
 import { Share } from 'react-native';
 import { colors } from '../theme/colors';
 import { safeHaptics } from '../utils/haptics';
+import { sanitizeName } from '../utils/sanitize';
 import { useAuth } from '../hooks/useAuth';
 import { useGroupDetail, useGroups } from '../hooks/useGroups';
+import { useChallengeMembership } from '../hooks/usePublicChallenges';
 import { useTransactions } from '../hooks/useTransactions';
 import { useGoals, AutoFailureInfo } from '../hooks/useGoals';
 import { StyledAlert } from '../components/StyledAlert';
@@ -53,6 +55,9 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
     const { user } = useAuth();
     const insets = useSafeAreaInsets();
     const { group, members, loading: groupLoading, refetch: refetchGroup } = useGroupDetail(groupId);
+    // Public-challenge tag: non-null only when the caller joined this group
+    // via a public challenge.
+    const { challenge: challengeTag } = useChallengeMembership(groupId);
     const { deleteGroup, leaveGroup } = useGroups();
     const {
         pendingDebts,
@@ -224,14 +229,19 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         if (!member.user_id || member.user_id === user?.id) return;
         safeHaptics('selection');
         try {
+            // L2: never insert a raw profile name into a message other
+            // members render — sanitize (strips control chars/HTML, caps the
+            // length) before interpolating, with a safe fallback.
+            const rawName = member.profile?.name || 'there';
+            const safeName = sanitizeName(rawName, 20) || 'there';
             const { error } = await supabase.from('messages').insert({
                 group_id: groupId,
                 user_id: user?.id,
-                content: `👋 Nudge to @${member.profile?.name || 'there'}!`,
+                content: `👋 Nudge to @${safeName}!`,
                 message_type: 'text',
             });
             if (error) throw error;
-            StyledAlert.alert('Nudge Sent', `You nudged ${member.profile?.name}!`);
+            StyledAlert.alert('Nudge Sent', `You nudged ${safeName}!`);
         } catch {
             StyledAlert.alert('Error', 'Failed to send nudge');
         }
@@ -277,6 +287,7 @@ export default function GroupDetailScreen({ navigation, route }: Props) {
         <View style={styles.container}>
             <GroupDetailHeader
                 groupName={group.name}
+                challengeTag={challengeTag}
                 activeTab={activeTab}
                 onBack={() => navigation.goBack()}
                 onTabChange={handleTabChange}

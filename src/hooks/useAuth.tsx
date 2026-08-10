@@ -350,6 +350,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Track while the session is still valid — the auth row is gone
             // right after signOut and RLS would drop an anonymous insert.
             track('logout');
+
+            // M7: guest (anonymous) accounts must not accumulate as zombie
+            // users. delete_my_account keys on auth.uid(), which is gone the
+            // moment signOut completes, so it has to run BEFORE signOut while
+            // the session can still authorize it. Fire-and-forget: the local
+            // sign-out below must never depend on it (and it only ever
+            // touches this user's own rows).
+            if (isAnon) {
+                Promise.resolve(supabase.rpc('delete_my_account')).catch(() => {
+                    // Guest cleanup is best-effort — a guest left behind is
+                    // harmless, and retrying after signOut would fail anyway.
+                });
+            }
+
             const { error } = await supabase.auth.signOut();
             if (error) {
                 // Fall back to local-only signout so the UI never stays
@@ -363,16 +377,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setProfile(null);
             setSession(null);
             setIsGuest(false);
-        }
-
-        // For anonymous users, also delete the account
-        if (isAnon) {
-            try {
-                // Anonymous users are ephemeral - data cleanup is handled by RLS
-                // The session is already invalidated by signOut above
-            } catch {
-                // Ignore cleanup errors for anonymous accounts
-            }
         }
     }, [user]);
 
