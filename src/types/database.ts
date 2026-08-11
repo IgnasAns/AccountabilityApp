@@ -16,6 +16,8 @@ export interface Database {
                     name: string;
                     avatar_url: string | null;
                     payment_link: string | null;
+                    premium_until: string | null;
+                    premium_plan: string | null;
                     created_at: string;
                     updated_at: string;
                 };
@@ -24,6 +26,8 @@ export interface Database {
                     name: string;
                     avatar_url?: string | null;
                     payment_link?: string | null;
+                    premium_until?: string | null;
+                    premium_plan?: string | null;
                     created_at?: string;
                     updated_at?: string;
                 };
@@ -32,6 +36,8 @@ export interface Database {
                     name?: string;
                     avatar_url?: string | null;
                     payment_link?: string | null;
+                    premium_until?: string | null;
+                    premium_plan?: string | null;
                     updated_at?: string;
                 };
             };
@@ -142,6 +148,15 @@ export interface Database {
             join_group_by_code: {
                 Args: { p_invite_code: string };
                 Returns: { success: boolean; group_id: string | null; error: string | null } | null;
+            };
+            set_premium: {
+                Args: { p_product_id: string; p_purchase_token: string };
+                Returns: {
+                    success: boolean;
+                    premium_until: string | null;
+                    plan: string | null;
+                    error?: string | null;
+                } | null;
             };
         };
         Enums: {
@@ -359,6 +374,7 @@ export interface LeaderboardEntry {
     user_id: string;
     user_name: string;
     avatar_url: string | null;
+    premium_until?: string | null;
     completions_count: number;
     streak_days: number;
     failure_count: number;

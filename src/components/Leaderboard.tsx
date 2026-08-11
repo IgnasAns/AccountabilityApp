@@ -147,6 +147,9 @@ export default function Leaderboard({ groupId, showPeriodSelector = true, onMemb
                     leaderboard.map((entry, index) => {
                         const rank = index + 1;
                         const isMe = entry.user_id === user?.id;
+                        const isPremiumMember =
+                            !!entry.premium_until &&
+                            new Date(entry.premium_until).getTime() > Date.now();
 
                         return (
                             <TouchableOpacity
@@ -182,6 +185,7 @@ export default function Leaderboard({ groupId, showPeriodSelector = true, onMemb
                                     <Text style={styles.userName} numberOfLines={1}>
                                         {entry.user_name}
                                         {isMe && ' (You)'}
+                                        {isPremiumMember && ' 👑'}
                                     </Text>
                                     <View style={styles.statsRow}>
                                         <Text style={styles.stat}>

@@ -8,7 +8,9 @@ buildscript {
   dependencies {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
-    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    // Pinned 2.2.x: react-native-iap v14 (openiap-google, billing-ktx 8.3) ships
+    // Kotlin 2.2 metadata — the catalog default (2.0.x) cannot read it.
+    classpath('org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.10')
   }
 }
 

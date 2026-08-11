@@ -116,8 +116,8 @@ android {
         // Kept in step with app.json manually: this is a bare project with a
         // committed android/ directory, so app.json's version does NOT flow
         // through unless `expo prebuild` is re-run.
-        versionCode 18
-        versionName "1.0.14"
+        versionCode 19
+        versionName "1.0.15"
     }
     signingConfigs {
         debug {

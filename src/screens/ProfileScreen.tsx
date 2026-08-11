@@ -12,11 +12,13 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../hooks/useAuth';
+import { usePremium } from '../hooks/usePremium';
 import { track } from '../services/track';
 import { colors } from '../theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyledAlert } from '../components/StyledAlert';
 import ConfirmModal from '../components/ConfirmModal';
+import PaywallModal from '../components/PaywallModal';
 import { pickImage, uploadAvatar } from '../services/photoService';
 import { sanitizeName, sanitizeUrl } from '../utils/sanitize';
 import { isAllowedImageUri } from '../utils/media';
@@ -36,14 +38,30 @@ interface Props {
 
 export default function ProfileScreen({ navigation }: Props) {
     const { profile, session, updateProfile, signOut, deleteAccount, isGuest } = useAuth();
+    const { isPremium, premiumUntil, plan, refresh: refreshPremium } = usePremium();
     const insets = useSafeAreaInsets();
     const [name, setName] = useState(profile?.name || '');
     const [paymentLink, setPaymentLink] = useState(profile?.payment_link || '');
     const [loading, setLoading] = useState(false);
     const [showLogoutModal, setShowLogoutModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showPaywall, setShowPaywall] = useState(false);
     const [deleting, setDeleting] = useState(false);
     const [errors, setErrors] = useState<{ name?: string; paymentLink?: string }>({});
+
+    const formatPremiumDate = (iso: string): string => {
+        try {
+            return new Date(iso).toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+        } catch {
+            return iso;
+        }
+    };
+
+    const planLabel = plan === 'yearly' ? 'Yearly' : plan === 'monthly' ? 'Monthly' : '';
 
     const validateForm = (): boolean => {
         const newErrors: typeof errors = {};
@@ -215,6 +233,44 @@ export default function ProfileScreen({ navigation }: Props) {
                 )}
             </View>
 
+            {/* Premium Card */}
+            {isPremium && premiumUntil ? (
+                <TouchableOpacity
+                    style={styles.premiumCard}
+                    activeOpacity={0.8}
+                >
+                    <View style={styles.premiumIconContainer}>
+                        <Text style={styles.premiumIcon}>👑</Text>
+                    </View>
+                    <View style={styles.premiumInfo}>
+                        <Text style={styles.premiumTitle}>Premium {planLabel ? `· ${planLabel}` : ''}</Text>
+                        <Text style={styles.premiumSubtitle}>
+                            Active until {formatPremiumDate(premiumUntil)}
+                        </Text>
+                    </View>
+                </TouchableOpacity>
+            ) : (
+                <TouchableOpacity
+                    style={styles.goPremiumCard}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                        safeHaptics('light');
+                        setShowPaywall(true);
+                    }}
+                >
+                    <View style={styles.goPremiumIconContainer}>
+                        <Text style={styles.goPremiumIcon}>👑</Text>
+                    </View>
+                    <View style={styles.goPremiumInfo}>
+                        <Text style={styles.goPremiumTitle}>Go Premium</Text>
+                        <Text style={styles.goPremiumSubtitle}>
+                            Unlimited groups · premium badge · exclusive stats
+                        </Text>
+                    </View>
+                    <Text style={styles.goPremiumChevron}>›</Text>
+                </TouchableOpacity>
+            )}
+
             {/* Profile Form */}
             <View style={styles.sectionCard}>
                 <Text style={styles.sectionTitle}>Profile Settings</Text>
@@ -352,6 +408,13 @@ export default function ProfileScreen({ navigation }: Props) {
                 onConfirm={doDeleteAccount}
                 onCancel={() => setShowDeleteModal(false)}
             />
+
+            {/* Premium Paywall */}
+            <PaywallModal
+                visible={showPaywall}
+                onClose={() => setShowPaywall(false)}
+                onPremiumChanged={refreshPremium}
+            />
         </ScrollView>
     );
 }
@@ -409,6 +472,87 @@ const styles = StyleSheet.create({
         color: colors.primary,
         fontSize: 40,
         fontWeight: '800',
+    },
+    premiumCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 24,
+        borderWidth: 2,
+        borderColor: colors.warning,
+    },
+    premiumIconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: `${colors.warning}22`,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 14,
+    },
+    premiumIcon: {
+        fontSize: 22,
+    },
+    premiumInfo: {
+        flex: 1,
+    },
+    premiumTitle: {
+        color: colors.text,
+        fontSize: 16,
+        fontWeight: '800',
+        marginBottom: 2,
+    },
+    premiumSubtitle: {
+        color: colors.textMuted,
+        fontSize: 13,
+    },
+    goPremiumCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.primaryMuted,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: colors.primary,
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 10,
+        elevation: 3,
+    },
+    goPremiumIconContainer: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: `${colors.primary}30`,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 14,
+    },
+    goPremiumIcon: {
+        fontSize: 22,
+    },
+    goPremiumInfo: {
+        flex: 1,
+    },
+    goPremiumTitle: {
+        color: colors.text,
+        fontSize: 16,
+        fontWeight: '800',
+        marginBottom: 2,
+    },
+    goPremiumSubtitle: {
+        color: colors.textMuted,
+        fontSize: 12,
+    },
+    goPremiumChevron: {
+        color: colors.primary,
+        fontSize: 28,
+        fontWeight: '700',
+        marginLeft: 8,
     },
     profileName: {
         color: colors.text,

@@ -11,9 +11,13 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useGroups } from '../hooks/useGroups';
+import { useAuth } from '../hooks/useAuth';
+import { usePremium } from '../hooks/usePremium';
 import { colors } from '../theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyledAlert } from '../components/StyledAlert';
+import PaywallModal from '../components/PaywallModal';
+import { supabase } from '../services/supabase';
 import { sanitizeName, sanitizeText, sanitizeNumber } from '../utils/sanitize';
 import { safeHaptics } from '../utils/haptics';
 import { rateLimiters } from '../utils/rateLimiter';
@@ -32,11 +36,14 @@ interface Props {
 
 export default function CreateGroupScreen({ navigation, route }: Props) {
     const { createGroup } = useGroups();
+    const { user } = useAuth();
+    const { isPremium, loading: premiumLoading, refresh: refreshPremium } = usePremium();
     const insets = useSafeAreaInsets();
     const [name, setName] = useState(route?.params?.initialName || '');
     const [description, setDescription] = useState(route?.params?.initialDescription || '');
     const [penaltyAmount, setPenaltyAmount] = useState(route?.params?.initialPenalty || '5');
     const [loading, setLoading] = useState(false);
+    const [showPaywall, setShowPaywall] = useState(false);
     const [errors, setErrors] = useState<{ name?: string; penalty?: string }>({});
 
     React.useEffect(() => {
@@ -77,6 +84,25 @@ export default function CreateGroupScreen({ navigation, route }: Props) {
             return;
         }
 
+        // Free-tier gate (client check): a free account may create ONE
+        // user-created group. Public-challenge groups ('CH…' invite codes)
+        // never count. Skipped while premium state is still loading — the
+        // server trigger is authoritative and the catch below maps
+        // FREE_TIER_GROUP_LIMIT to the paywall if this check is bypassed.
+        if (!isPremium && !premiumLoading && user) {
+            const { count, error: countError } = await supabase
+                .from('groups')
+                .select('id', { count: 'exact', head: true })
+                .eq('created_by', user.id)
+                .not('invite_code', 'like', 'CH%');
+
+            if (!countError && count !== null && count >= 1) {
+                safeHaptics('warning');
+                setShowPaywall(true);
+                return;
+            }
+        }
+
         try {
             setLoading(true);
             safeHaptics('light');
@@ -98,7 +124,15 @@ export default function CreateGroupScreen({ navigation, route }: Props) {
             navigation.replace('GroupDetail', { groupId: group.id, showInviteModal: true });
         } catch (error: unknown) {
             safeHaptics('error');
-            StyledAlert.alert('Error', (error instanceof Error ? error.message : "Failed to create group"));
+            const message = error instanceof Error ? error.message : "Failed to create group";
+            if (message.includes('FREE_TIER_GROUP_LIMIT')) {
+                // Server-side fallback: the free-tier cap fired despite the
+                // client check (e.g. the user left their only group, or the
+                // count query was masked by RLS). Route to the paywall.
+                setShowPaywall(true);
+                return;
+            }
+            StyledAlert.alert('Error', message);
         } finally {
             setLoading(false);
         }
@@ -262,6 +296,13 @@ export default function CreateGroupScreen({ navigation, route }: Props) {
                     </Text>
                 </View>
             </ScrollView>
+
+            {/* Premium Paywall (free-tier group limit) */}
+            <PaywallModal
+                visible={showPaywall}
+                onClose={() => setShowPaywall(false)}
+                onPremiumChanged={refreshPremium}
+            />
         </View>
     );
 }
