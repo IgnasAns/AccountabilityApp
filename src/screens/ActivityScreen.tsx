@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
 import EmptyState from '../components/EmptyState';
 import AppIcon from '../components/AppIcon';
+import ProofPhotoViewer from '../components/ProofPhotoViewer';
 
 interface Props {
     navigation: NativeStackNavigationProp<any>;
@@ -83,19 +84,9 @@ export default function ActivityScreen({ navigation }: Props) {
                     </View>
                 </View>
 
-                {/* Proof Photo if available */}
+                {/* Proof Photo if available — tap to open the shared zoomable viewer */}
                 {item.proof_photo_url && (
-                    <View style={styles.proofContainer}>
-                        <Image
-                            source={{ uri: item.proof_photo_url }}
-                            style={styles.proofImage}
-                            resizeMode="cover"
-                        />
-                        <View style={styles.proofBadge}>
-                            <AppIcon name="camera-outline" size={12} color="#fff" />
-                            <Text style={styles.proofText}>PROOF</Text>
-                        </View>
-                    </View>
+                    <ProofPhotoViewer photoUrl={item.proof_photo_url} size="medium" />
                 )}
             </View>
         );
@@ -253,34 +244,6 @@ const styles = StyleSheet.create({
     },
     textPending: {
         color: colors.warning,
-    },
-    proofContainer: {
-        marginTop: 16,
-        borderRadius: 8,
-        overflow: 'hidden',
-        position: 'relative',
-    },
-    proofImage: {
-        width: '100%',
-        height: 150,
-        backgroundColor: colors.surfaceHighlight,
-    },
-    proofBadge: {
-        position: 'absolute',
-        bottom: 8,
-        left: 8,
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 6,
-    },
-    proofText: {
-        color: '#fff',
-        fontSize: 10,
-        fontWeight: 'bold',
     },
     emptyContainer: {
         padding: 40,
