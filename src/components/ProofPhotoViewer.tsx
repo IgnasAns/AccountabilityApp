@@ -124,6 +124,9 @@ export default function ProofPhotoViewer({ photoUrl, size = 'small' }: ProofPhot
         return null;
     }
 
+    // The zoomable fullscreen viewer requires a gesture-handler root. Wrap
+    // locally so the host screen doesn't have to (screens without one would
+    // otherwise crash on first pinch).
     const thumbnailSize = size === 'small' ? 40 : 60;
 
     return (
@@ -146,41 +149,45 @@ export default function ProofPhotoViewer({ photoUrl, size = 'small' }: ProofPhot
                 </View>
             </TouchableOpacity>
 
-            <Modal
-                visible={showFullscreen}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowFullscreen(false)}
-                statusBarTranslucent
-            >
-                <View style={styles.fullscreenContainer}>
-                    {Platform.OS === 'ios' ? (
-                        <BlurView intensity={30} style={StyleSheet.absoluteFill} tint="dark" />
-                    ) : (
-                        <View style={[StyleSheet.absoluteFill, styles.androidOverlay]} />
-                    )}
-
-                    <ZoomableImage
-                        uri={photoUrl}
-                        onClose={() => setShowFullscreen(false)}
-                    />
-
-                    <View style={styles.proofBadge}>
-                        <Text style={styles.proofBadgeText}>📸 Proof Photo</Text>
-                    </View>
-
-                    <View style={styles.zoomHint}>
-                        <Text style={styles.zoomHintText}>Pinch to zoom · Double tap to toggle</Text>
-                    </View>
-
-                    <TouchableOpacity
-                        style={styles.closeButton}
-                        onPress={() => setShowFullscreen(false)}
+            {showFullscreen && (
+                <GestureHandlerRootView style={StyleSheet.absoluteFill}>
+                    <Modal
+                        visible
+                        transparent
+                        animationType="fade"
+                        onRequestClose={() => setShowFullscreen(false)}
+                        statusBarTranslucent
                     >
-                        <Text style={styles.closeButtonText}>✕</Text>
-                    </TouchableOpacity>
-                </View>
-            </Modal>
+                        <View style={styles.fullscreenContainer}>
+                            {Platform.OS === 'ios' ? (
+                                <BlurView intensity={30} style={StyleSheet.absoluteFill} tint="dark" />
+                            ) : (
+                                <View style={[StyleSheet.absoluteFill, styles.androidOverlay]} />
+                            )}
+
+                            <ZoomableImage
+                                uri={photoUrl}
+                                onClose={() => setShowFullscreen(false)}
+                            />
+
+                            <View style={styles.proofBadge}>
+                                <Text style={styles.proofBadgeText}>📸 Proof Photo</Text>
+                            </View>
+
+                            <View style={styles.zoomHint}>
+                                <Text style={styles.zoomHintText}>Pinch to zoom · Double tap to toggle</Text>
+                            </View>
+
+                            <TouchableOpacity
+                                style={styles.closeButton}
+                                onPress={() => setShowFullscreen(false)}
+                            >
+                                <Text style={styles.closeButtonText}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Modal>
+                </GestureHandlerRootView>
+            )}
         </>
     );
 }

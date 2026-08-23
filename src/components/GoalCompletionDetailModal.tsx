@@ -9,12 +9,12 @@ import {
     ActivityIndicator,
     ScrollView,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { colors } from '../theme/colors';
 import { ActivityLogWithProfile, GoalCompletion } from '../types/database';
 import { supabase } from '../services/supabase';
 import { safeHaptics } from '../utils/haptics';
 import CommentsSection from './CommentsSection';
+import ProofPhotoViewer from './ProofPhotoViewer';
 
 
 interface Props {
@@ -145,22 +145,10 @@ export default function GoalCompletionDetailModal({ visible, onClose, activityIt
                     </ScrollView>
                 </View>
 
-                {/* Photo Viewer Modal */}
-                <Modal visible={showPhotoViewer} transparent={true} onRequestClose={() => setShowPhotoViewer(false)}>
-                    <View style={{ flex: 1, backgroundColor: 'black', justifyContent: 'center' }}>
-                        <TouchableOpacity
-                            style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10, backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20 }}
-                            onPress={() => setShowPhotoViewer(false)}
-                        >
-                            <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold' }}>✕</Text>
-                        </TouchableOpacity>
-                        <Image
-                            source={{ uri: completion?.proof_photo_url || '' }}
-                            style={{ width: '100%', height: '100%' }}
-                            resizeMode="contain"
-                        />
-                    </View>
-                </Modal>
+                {/* Photo Viewer — shared zoomable ProofPhotoViewer (pinch/double-tap) */}
+                {showPhotoViewer && completion?.proof_photo_url && (
+                    <ProofPhotoViewer photoUrl={completion.proof_photo_url} size="medium" />
+                )}
             </View>
         </Modal>
     );
