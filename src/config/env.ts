@@ -50,7 +50,10 @@ export const env: EnvConfig = {
     // so the old literal meant a release build reported itself as development
     // and skipped the startup guard in services/supabase.ts.
     appEnv: (getEnvVar('EXPO_PUBLIC_APP_ENV', __DEV__ ? 'development' : 'production') as EnvConfig['appEnv']),
-    enableAnalytics: getEnvVar('EXPO_PUBLIC_ENABLE_ANALYTICS', 'false') === 'true',
+    // Analytics ON by default (CEO ruling 2026-08-24): the tester cohort's
+    // first sessions are the signal we ship vc20 for. EXPO_PUBLIC_ENABLE_ANALYTICS=false
+    // still opts a build out (e.g. debug builds set it in .env.local).
+    enableAnalytics: getEnvVar('EXPO_PUBLIC_ENABLE_ANALYTICS', 'true') === 'true',
     enableDebugLogs: getEnvVar('EXPO_PUBLIC_ENABLE_DEBUG', __DEV__ ? 'true' : 'false') === 'true',
     apiTimeoutMs: parseInt(getEnvVar('EXPO_PUBLIC_API_TIMEOUT_MS', '30000'), 10),
     maxImageSizeBytes: parseInt(getEnvVar('EXPO_PUBLIC_MAX_IMAGE_SIZE', '5242880'), 10), // 5MB
