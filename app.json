@@ -3,7 +3,7 @@
     "name": "Do It Mate!",
     "slug": "do-it-mate",
     "scheme": "doitmate",
-    "version": "1.0.15",
+    "version": "1.0.16",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -25,7 +25,7 @@
         "backgroundColor": "#D94B3D"
       },
       "package": "com.socialledger.app",
-      "versionCode": 19,
+      "versionCode": 20,
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.SYSTEM_ALERT_WINDOW"

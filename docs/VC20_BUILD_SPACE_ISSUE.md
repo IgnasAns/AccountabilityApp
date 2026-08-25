@@ -1,0 +1,20 @@
+-- Diagnostic summary (no DB change): why vc20 AAB build fails
+--
+--SYMPTOM: ninja: error: mkdir(CMakeFiles/NitroIap.dir/C_/Projects/Mobile_Applications/...)
+--
+--ROOT CAUSE: 4 of 48 compile rules in react-native-iap's build.ninja mangle the
+--object path as C_/Projects/Mobile_Applications/... instead of the bbd3e... hash
+--prefix. This is a known CMake/ninja failure mode when the SOURCE ROOT contains
+--a SPACE ("Mobile Applications"): CMake computes a relative object path, hits the
+--space, and falls back to an absolute drive-mangled path that then exceeds or
+--breaks mkdir. The repo was MOVED from C:\Projects\AccountabilityApp (no space)
+--to C:\Projects\Mobile Applications\AccountabilityApp (space) after vc19 built —
+--vc19's .cxx cache predates the move; fresh configure now trips on it.
+--
+--FIX OPTIONS (repo-side, no code change):
+--  A. Build from a junction: mklink /J C:\Projects\AppBuild "C:\Projects\Mobile Applications\AccountabilityApp"
+--     then run gradle from C:\Projects\AppBuild\android (no space in path).
+--  B. Set ANDROID_BUILD_TOOLS + use 8.3 shortpath (PROGRA~1 style) for the project.
+--  C. Relocate the working tree back to a space-free path (Ignas call; shared tree).
+--
+--Option A is non-invasive and reversible. Nothing in git changes.
