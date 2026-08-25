@@ -46,6 +46,7 @@ ORDER = [
     "migrations/018_freemium.sql",
     "migrations/019_premium_hardening.sql",
     "migrations/020_storage_settlement_hardening.sql",
+    "migrations/021_goal_comments_membership_guard.sql",
 ]
 
 HEADER = f"""-- ============================================================================
